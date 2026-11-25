@@ -3,8 +3,7 @@
 Reads Bluetooth LE sensors through BlueZ and pushes every reading with remote
 write (VictoriaMetrics, or Prometheus with its receiver on). It serves
 nothing: no `/metrics`, no HTTP. Go; the dependencies are `godbus/dbus`,
-`BurntSushi/toml` and, through the shared `promwrite` package, `prometheus/client_golang`. It
-grew out of aird, which only knew the Wave Plus (and is gone).
+`BurntSushi/toml` and, through the shared `promwrite` package, `prometheus/client_golang`.
 
 ## Devices
 
@@ -175,16 +174,6 @@ reports); the Pi heard them at -64 and -74 dBm, about 20 dB better.
 - Build for the Pi with `just build-pi` (armv6, static, so one file to copy),
   install the unit from `deploy/`, and `rfkill unblock bluetooth` if Raspberry
   Pi OS has it blocked.
-
-## Coming from aird
-
-btpolld's Wave Plus series have the names and labels aird used
-(`airthings_co2_ppm` and so on, with `device`). To carry on the same series,
-set `job` to what aird pushed (`aird` by default) and name the device the same;
-the graphs then continue unbroken. aird's own series (`aird_*`,
-`airthings_up`, `airthings_last_success_timestamp_seconds`) are not written
-any more; with VictoriaMetrics you can remove them with
-`curl http://HOST:8428/api/v1/admin/tsdb/delete_series --data-urlencode 'match[]={__name__=~"aird_.*|airthings_up|airthings_last_success_timestamp_seconds"}'`.
 
 ## Protocols
 

@@ -7,7 +7,7 @@ Pushes Bluetooth LE sensor readings with remote write, running on a Raspberry Pi
 - **This repo is public.** No device addresses (MACs), device or room names, or locations in commits. Test fixtures are invented. The real addresses live only on the host that runs it (`/etc/btpolld.toml`).
 - Read-only: only read the Wave Plus's current-values characteristic. Do not write to its command characteristics (`b42e2d06`, `b42e2fc2`) or its `f000ffc0` service (TI firmware update, probably) without Hugh agreeing. A SwitchBot thermometer is only listened to.
 - Dependencies: `prometheus/client_golang` (only through `promwrite`), `godbus/dbus` and `BurntSushi/toml`. Ask before adding more.
-- No nix, no HTTP server, no `/metrics`: Hugh wants it a simple standalone poller.
+- No HTTP server, no `/metrics`, no nix packaging or module: Hugh wants it a simple standalone poller. `flake.nix` exists only so the forge's CI runner (nix and nothing else) can build and test it: it has one output, `checks.<system>.gate`.
 
 ## Layout
 
@@ -31,6 +31,10 @@ Pushes Bluetooth LE sensor readings with remote write, running on a Raspberry Pi
 ## Broadcast devices record changes
 
 A `[broadcast]` device is recorded whenever a changed reading is heard (stamped with when it was heard), and a steady one is repeated every `interval`; `interval` is also the push cadence, and three silent intervals mean a gap. The battery rides in only some advertisements, so the last known value is carried forward.
+
+## CI
+
+`.forgejo/workflows/test.yml` runs `nix build .#checks.x86_64-linux.gate` on the forge's runner: `go vet`, a gofmt check, `go test` and `go test -race` in nix's sandbox (as in the sibling daemons). The gate must pass before a merge to `main`, which is protected (no direct pushes). When `go.mod` or `go.sum` change, update `vendorHash` in `flake.nix`: set it to `pkgs.lib.fakeHash`, run the build on bigthink, paste the `got:` hash. Run it with `nix build .#checks.x86_64-linux.gate -L` on a nix host.
 
 ## Commands
 

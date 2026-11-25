@@ -1,11 +1,11 @@
 # systemd unit for btpolld on a plain Linux host with BlueZ (Raspberry Pi OS,
-# Debian). Put the devices and the push target in /etc/btpolld.env, e.g.
+# Debian). Copy deploy/btpolld.toml.example to /etc/btpolld.toml, fill it in,
+# and make it readable by btpolld alone (it may hold a push password):
 #
-#   BTPOLLD_WAVE=den=00:11:22:33:44:55
-#   BTPOLLD_THERMOMETER=probe=00:11:22:33:44:66
-#   BTPOLLD_PUSH=local=http://metrics.example:8428
+#   useradd --system btpolld
+#   install -m 0755 btpolld /usr/local/bin/
+#   install -m 0640 -g btpolld btpolld.toml.example /etc/btpolld.toml
 #
-# and run: useradd --system btpolld; install -m 0755 btpolld /usr/local/bin/
 [Unit]
 Description=Bluetooth LE sensors to remote write
 Wants=bluetooth.service
@@ -14,8 +14,7 @@ Wants=network-online.target
 
 [Service]
 User=btpolld
-EnvironmentFile=/etc/btpolld.env
-ExecStart=/usr/local/bin/btpolld
+ExecStart=/usr/local/bin/btpolld --config /etc/btpolld.toml
 Restart=on-failure
 RestartSec=30s
 NoNewPrivileges=true

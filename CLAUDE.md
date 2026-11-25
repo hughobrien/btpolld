@@ -4,20 +4,21 @@ Pushes Bluetooth LE sensor readings with remote write, running on a Raspberry Pi
 
 ## Hard rules
 
-- **This repo is public.** No device addresses (MACs), device or room names, or locations in commits. Test fixtures are invented. The real addresses live only on the host that runs it (`/etc/btpolld.env`).
+- **This repo is public.** No device addresses (MACs), device or room names, or locations in commits. Test fixtures are invented. The real addresses live only on the host that runs it (`/etc/btpolld.toml`).
 - Read-only: only read the Wave Plus's current-values characteristic. Do not write to its command characteristics (`b42e2d06`, `b42e2fc2`) or its `f000ffc0` service (TI firmware update, probably) without Hugh agreeing. A SwitchBot thermometer is only listened to.
-- Dependencies: `prometheus/client_golang` (only through `promwrite`) and `godbus/dbus`. Ask before adding more.
+- Dependencies: `prometheus/client_golang` (only through `promwrite`), `godbus/dbus` and `BurntSushi/toml`. Ask before adding more.
 - No nix, no HTTP server, no `/metrics`: Hugh wants it a simple standalone poller.
 
 ## Layout
 
-- `cmd/btpolld`: flags (`--wave`, `--thermometer`, `--push`, ...), each also settable as `BTPOLLD_<FLAG>`.
-- `internal/poll`: the poll loop (Wave Plus, up to three attempts) and the thermometer listeners and per-interval sampling; pushes through a `Sink`.
+- `cmd/btpolld`: `--config` (default `/etc/btpolld.toml`, or `BTPOLLD_CONFIG`) and `--version`; everything else is in the file.
+- `internal/config`: the TOML file, validated; devices are grouped by how they are read (`[poll]`, `[broadcast]`), a `type` fits one group, and errors never echo values (push URLs hold passwords). `deploy/btpolld.toml.example` is tested to load.
+- `internal/poll`: the poll loop (Wave Plus, up to three attempts) and the thermometer listeners (a changed advertisement is recorded at once, a steady one repeated each interval); pushes through a `Sink`.
 - `internal/wave`, `internal/switchbot`: decode a device's data into `metric.Metric`s (names are the contract with the dashboard).
 - `internal/bluez`: BlueZ over D-Bus: `Read` (find the adapter, scan if the device is unknown, connect, wait for `ServicesResolved`, `ReadValue`, disconnect) and `Listen` (passive scan on its own bus connection). The pure parts are tested; the D-Bus calls are only exercised on a real host. Beware shadowing the `service` constant (`org.bluez`): a call to the wrong destination makes dbus-broker drop the connection with a bare `EOF`.
 - `internal/promwrite`: remote write 1.0 by hand, identical in all the daemons (SPDX header aside); change the copies together.
 - `grafana/btpolld.json`: importable dashboard; `internal/poll/dashboard_test.go` fails if it uses a metric btpolld does not push.
-- `deploy/btpolld.service`: systemd unit for a Debian-style host.
+- `deploy/btpolld.service`, `deploy/btpolld.toml.example`: systemd unit and example config for a Debian-style host.
 
 ## Things learned
 

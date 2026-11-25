@@ -262,3 +262,82 @@ func TestWaveRSSIPrefersFreshAdvert(t *testing.T) {
 		t.Errorf("stale advert: got %d, want the read's -70", got)
 	}
 }
+
+func count(s *sink, device, name string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, x := range s.series {
+		if x.Labels["device"] == device && x.Labels["__name__"] == name {
+			n += len(x.Samples)
+		}
+	}
+	return n
+}
+
+func TestBroadcastRecordsChangesNotRepeats(t *testing.T) {
+	s := &sink{}
+	p := newPoller(nil, nil, s, Config{Thermometers: probe})
+	now := time.Unix(1000, 0)
+	p.now = func() time.Time { return now }
+	const temp = "switchbot_temperature_celsius"
+	same := mkAdvert(t, "aabbccddeeff1b0203962600", -90) // 22.3 C, 38 %
+	p.hear(probe[0], same)
+	for range 5 { // the same values again, with a wobbling signal
+		now = now.Add(2 * time.Second)
+		a := same
+		a.RSSI -= 3
+		p.hear(probe[0], a)
+	}
+	if n := count(s, "probe", temp); n != 1 {
+		t.Fatalf("identical advertisements recorded %d times, want 1", n)
+	}
+	now = now.Add(2 * time.Second)
+	p.hear(probe[0], mkAdvert(t, "aabbccddeeff1b0203972600", -90)) // 23.3 C
+	if n := count(s, "probe", temp); n != 2 {
+		t.Fatalf("a changed reading was not recorded: %d samples", n)
+	}
+	// The sample carries the time it was heard.
+	last := s.series[len(s.series)-1]
+	if !last.Samples[0].T.Equal(now) {
+		t.Errorf("sample time %v, want %v", last.Samples[0].T, now)
+	}
+}
+
+func TestBroadcastRepeatsSteadyReading(t *testing.T) {
+	s := &sink{}
+	p := newPoller(nil, nil, s, Config{Thermometers: []Device{{Name: "probe", MAC: "00:11:22:33:44:66", Interval: 30 * time.Second}}})
+	now := time.Unix(1000, 0)
+	p.now = func() time.Time { return now }
+	const temp = "switchbot_temperature_celsius"
+	p.hear(probe[0], mkAdvert(t, "aabbccddeeff1b0203962600", -90))
+	p.sampleThermometers()
+	if n := count(s, "probe", temp); n != 1 {
+		t.Fatalf("repeat too soon: %d samples", n)
+	}
+	now = now.Add(31 * time.Second) // device interval, not the 1m default
+	p.sampleThermometers()
+	if n := count(s, "probe", temp); n != 2 {
+		t.Fatalf("steady reading not repeated: %d samples", n)
+	}
+	now = now.Add(2 * time.Minute) // unheard for over three intervals
+	p.sampleThermometers()
+	if n := count(s, "probe", temp); n != 2 {
+		t.Fatalf("a stale reading was repeated: %d samples", n)
+	}
+}
+
+func TestBroadcastKeepsLastBattery(t *testing.T) {
+	s := &sink{}
+	p := newPoller(nil, nil, s, Config{Thermometers: probe})
+	now := time.Unix(1000, 0)
+	p.now = func() time.Time { return now }
+	a := mkAdvert(t, "aabbccddeeff1b0203962600", -90)
+	a.Service = []byte{0x77, 0, 0xd5}
+	p.hear(probe[0], a)
+	now = now.Add(time.Second)
+	p.hear(probe[0], mkAdvert(t, "aabbccddeeff1b0203972600", -90)) // no service data this time
+	if got := s.values("probe")["switchbot_battery_percent"]; got != 85 {
+		t.Errorf("battery %v, want the last known 85", got)
+	}
+}

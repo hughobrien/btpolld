@@ -1,65 +1,44 @@
 package main
 
 import (
-	"flag"
+	"os"
 	"strings"
 	"testing"
 )
 
-func TestParseDevice(t *testing.T) {
-	d, err := parseDevice("den=aa:bb:cc:00:11:22")
-	if err != nil || d.Name != "den" || d.MAC != "AA:BB:CC:00:11:22" {
-		t.Fatalf("%+v %v", d, err)
+func TestTargetsNamedByHost(t *testing.T) {
+	ts, err := targets([]string{"http://user:hunter2@192.0.2.1:8428", "https://metrics.example/api", "http://metrics.example:9"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	d, err = parseDevice("aa-bb-cc-00-11-22")
-	if err != nil || d.Name != "AA:BB:CC:00:11:22" {
-		t.Fatalf("%+v %v", d, err)
-	}
-	for _, bad := range []string{"", "den=", "den=nonsense", "aa:bb:cc"} {
-		if _, err := parseDevice(bad); err == nil {
-			t.Errorf("%q accepted", bad)
+	want := []string{"h192_0_2_1", "hmetrics_example", "hmetrics_example_2"}
+	for i, w := range want {
+		if ts[i].Name != w {
+			t.Errorf("target %d named %q, want %q", i, ts[i].Name, w)
 		}
 	}
-}
-
-func TestDevicesFlagRejectsDuplicateName(t *testing.T) {
-	var ds devices
-	if err := ds.Set("a=aa:bb:cc:00:11:22"); err != nil {
-		t.Fatal(err)
-	}
-	if err := ds.Set("a=aa:bb:cc:00:11:23"); err == nil {
-		t.Fatal("duplicate name accepted")
+	if ts[0].URL != "http://user:hunter2@192.0.2.1:8428" {
+		t.Error("the URL must be kept whole")
 	}
 }
 
-func TestSetFromEnv(t *testing.T) {
-	var ds devices
-	fs := flag.NewFlagSet("t", flag.ContinueOnError)
-	fs.Var(&ds, "wave", "")
-	job := fs.String("job", "btpolld", "")
-	if err := fs.Parse([]string{"--job", "given"}); err != nil {
+func TestRunErrorsHideSecrets(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/c.toml"
+	if err := writeFile(path, `push = ["ftp://user:hunter2@h"]`+"\n"); err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"BTPOLLD_WAVE": "a=aa:bb:cc:00:11:22 b=aa:bb:cc:00:11:23", "BTPOLLD_JOB": "fromenv"}
-	if err := setFromEnv(fs, func(k string) string { return env[k] }); err != nil {
-		t.Fatal(err)
-	}
-	if len(ds) != 2 || *job != "given" {
-		t.Fatalf("%v %q", ds, *job)
-	}
-}
-
-func TestSetFromEnvErrorHidesValue(t *testing.T) {
-	var ds devices
-	fs := flag.NewFlagSet("t", flag.ContinueOnError)
-	fs.Var(&ds, "wave", "")
-	err := setFromEnv(fs, func(k string) string {
-		if k == "BTPOLLD_WAVE" {
-			return "den=hunter2"
-		}
-		return ""
-	})
-	if err == nil || strings.Contains(err.Error(), "hunter2") || !strings.Contains(err.Error(), "BTPOLLD_WAVE") {
+	err := run([]string{"--config", path}, func(string) string { return "" })
+	if err == nil || strings.Contains(err.Error(), "hunter2") {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestMissingConfigNamesThePath(t *testing.T) {
+	err := run([]string{"--config", "/nonexistent/c.toml"}, func(string) string { return "" })
+	if err == nil || !strings.Contains(err.Error(), "/nonexistent/c.toml") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func writeFile(path, s string) error { return os.WriteFile(path, []byte(s), 0o600) }

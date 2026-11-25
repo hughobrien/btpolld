@@ -2,21 +2,24 @@
 
 Reads Bluetooth LE sensors through BlueZ and pushes every reading with remote
 write (VictoriaMetrics, or Prometheus with its receiver on). It serves
-nothing: no `/metrics`, no HTTP. Go; the dependencies are `godbus/dbus` and,
-through the shared `promwrite` package, `prometheus/client_golang`. It
+nothing: no `/metrics`, no HTTP. Go; the dependencies are `godbus/dbus`,
+`BurntSushi/toml` and, through the shared `promwrite` package, `prometheus/client_golang`. It
 grew out of aird, which only knew the Wave Plus (and is gone).
 
 ## Devices
 
 Each kind of device is known to the code: how to read it and what it
-reports. You name the ones you have.
+reports. You name the ones you have in the config file, in the section for how
+they are read.
 
-| Flag | Device | How |
-|---|---|---|
-| `--wave [name=]address` | Airthings Wave Plus | connect, read the current values, disconnect, every 15 minutes |
-| `--thermometer [name=]address` | SwitchBot thermometer | listen for its advertisements (no connection), record the newest every minute |
+| `type` | Device | Section | How |
+|---|---|---|---|
+| `wave-plus` | Airthings Wave Plus | `[poll]` | connect, read the current values, disconnect, every 15 minutes |
+| `switchbot-thermometer` | SwitchBot thermometer | `[broadcast]` | listen for its advertisements (no connection); record each changed reading as heard, and repeat a steady one every minute |
 
-Both repeat. The name is the `device` label (the address if none).
+A device has to be polled when its advertisements do not carry its values (the
+Wave Plus advertises only its serial number); one that does is listened to,
+which costs it nothing.
 
 ```
 airthings_co2_ppm airthings_voc_ppb airthings_temperature_celsius
@@ -30,22 +33,21 @@ switchbot_battery_percent    (absent until the device sends it)
 switchbot_rssi_dbm           (signal strength at the host)
 ```
 
-Every series carries `job` (`--job`, default `btpolld`) and `device`. A device
+Every series carries `job` (`job` in the config, default `btpolld`) and `device`. A device
 that cannot be read or heard simply has no sample: a gap, not a flat line.
 
 ## Running
 
 ```
-btpolld --wave den=00:11:22:33:44:55 --thermometer probe=00:11:22:33:44:66 \
-        --push local=http://metrics.example:8428
+btpolld --config /etc/btpolld.toml
 ```
 
-`--push name=url` repeats; credentials may go in the URL
-(`http://user:password@host:8428`). Every flag can instead be set in the
-environment as `BTPOLLD_<FLAG>` (`BTPOLLD_WAVE`, `BTPOLLD_PUSH`,
-`BTPOLLD_THERMOMETER_INTERVAL`, ...), several values separated by spaces, so
-the addresses and passwords can live in a root-only file. `deploy/btpolld.service`
-is a systemd unit that does that. The host needs BlueZ running.
+`deploy/btpolld.toml.example` is the config, commented; copy it and fill in
+the push URL and the devices. `push` is a list of remote write URLs; credentials
+may go in the URL (`http://user:password@host:8428`), so keep the file
+readable by btpolld alone. `interval` is set per section, and a device can
+override it. `deploy/btpolld.service` is a systemd unit. The host needs BlueZ
+running. Errors never repeat what the file says.
 
 `just build-pi` makes a static binary for a Raspberry Pi Zero (armv6).
 `grafana/btpolld.json` is an importable dashboard (Wave Plus only so far).

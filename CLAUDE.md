@@ -12,7 +12,7 @@ Pushes Bluetooth LE sensor readings with remote write, running on a Raspberry Pi
 ## Layout
 
 - `cmd/btpolld`: `--config` (default `/etc/btpolld.toml`, or `BTPOLLD_CONFIG`) and `--version`; everything else is in the file.
-- `internal/config`: the TOML file, validated; devices are grouped by how they are read (`[poll]`, `[broadcast]`), a `type` fits one group, and errors never echo values (push URLs hold passwords). `deploy/btpolld.toml.example` is tested to load.
+- `internal/config`: the TOML file, validated; devices are grouped by how they are read (`[poll]`, `[broadcast]`), a `type` fits one group, and errors never echo values (push URLs hold passwords). `prefix` (section or device) renames the `airthings`/`switchbot` part of the metric names via `metric.Rename`; the default leaves the names alone, and the dashboard assumes the defaults. `deploy/btpolld.toml.example` is tested to load.
 - `internal/poll`: the poll loop (Wave Plus, up to three attempts) and the thermometer listeners (a changed advertisement is recorded at once, a steady one repeated each interval); pushes through a `Sink`.
 - `internal/wave`, `internal/switchbot`: decode a device's data into `metric.Metric`s (names are the contract with the dashboard).
 - `internal/bluez`: BlueZ over D-Bus: `Read` (find the adapter, scan if the device is unknown, connect, wait for `ServicesResolved`, `ReadValue`, disconnect) and `Listen` (passive scan on its own bus connection). The pure parts are tested; the D-Bus calls are only exercised on a real host. Beware shadowing the `service` constant (`org.bluez`): a call to the wrong destination makes dbus-broker drop the connection with a bare `EOF`.
@@ -27,6 +27,10 @@ Pushes Bluetooth LE sensor readings with remote write, running on a Raspberry Pi
 - The default BlueZ D-Bus policy lets any user talk to `org.bluez`, so the service runs as an unprivileged user with no extra group.
 - A SwitchBot thermometer needs no connection: temperature and humidity are in every advertisement; the battery (service data) only arrives at a good signal.
 - The collector Pi is a Pi Zero W (armv6l: `GOARCH=arm GOARM=6`, `just build-pi`), Raspberry Pi OS. Its Bluetooth is soft-blocked by default (`rfkill unblock bluetooth`). It hears the sensors about 20 dB better than the server did, which is why it exists.
+
+## Broadcast devices record changes
+
+A `[broadcast]` device is recorded whenever a changed reading is heard (stamped with when it was heard), and a steady one is repeated every `interval`; `interval` is also the push cadence, and three silent intervals mean a gap. The battery rides in only some advertisements, so the last known value is carried forward.
 
 ## Commands
 

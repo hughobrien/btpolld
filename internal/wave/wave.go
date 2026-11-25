@@ -67,7 +67,7 @@ func Parse(b []byte) (Reading, error) {
 // Metrics are the series a reading becomes. Radon is left out while the
 // device has no value. The names keep the airthings_ prefix of the dashboards
 // that came before.
-func (r Reading) Metrics() []metric.Metric {
+func (r Reading) Metrics(rssi int16) []metric.Metric {
 	m := []metric.Metric{
 		{Name: "airthings_co2_ppm", Value: float64(r.CO2)},
 		{Name: "airthings_voc_ppb", Value: float64(r.VOC)},
@@ -75,6 +75,9 @@ func (r Reading) Metrics() []metric.Metric {
 		{Name: "airthings_humidity_percent", Value: r.Humidity},
 		{Name: "airthings_pressure_hpa", Value: r.Pressure},
 		{Name: "airthings_light", Value: float64(r.Light)},
+	}
+	if rssi != 0 {
+		m = append(m, metric.Metric{Name: "airthings_rssi_dbm", Value: float64(rssi)})
 	}
 	if r.RadonShort != nil {
 		m = append(m, metric.Metric{Name: "airthings_radon_short_term_bq_m3", Value: float64(*r.RadonShort)})

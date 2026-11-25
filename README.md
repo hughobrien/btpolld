@@ -22,6 +22,7 @@ Both repeat. The name is the `device` label (the address if none).
 airthings_co2_ppm airthings_voc_ppb airthings_temperature_celsius
 airthings_humidity_percent airthings_pressure_hpa airthings_light
 airthings_radon_short_term_bq_m3 airthings_radon_long_term_bq_m3   (absent until the device has one)
+airthings_rssi_dbm                (signal strength at the host, from its advertisements)
 
 switchbot_temperature_celsius switchbot_humidity_percent
 switchbot_dew_point_celsius switchbot_absolute_humidity_g_m3 switchbot_vapor_pressure_deficit_kpa   (computed)

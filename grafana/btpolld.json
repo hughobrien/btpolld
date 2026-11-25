@@ -1104,6 +1104,63 @@
         }
       ],
       "transparent": true
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Signal strength",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dBm",
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "always"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "airthings_rssi_dbm",
+          "legendFormat": "wave"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "switchbot_rssi_dbm",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "transparent": true
     }
   ]
 }

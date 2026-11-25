@@ -23,7 +23,7 @@ import (
 
 // Reader reads a GATT characteristic from the device with the given address.
 type Reader interface {
-	Read(ctx context.Context, mac, uuid string) ([]byte, error)
+	Read(ctx context.Context, mac, uuid string) (val []byte, rssi int16, err error)
 }
 
 // Listener calls fn each time the device at mac advertises, with the
@@ -74,7 +74,13 @@ type Poller struct {
 	flushMu sync.Mutex // one flush at a time
 	mu      sync.Mutex
 	heard   map[string]*advert // newest advertisement, by thermometer name
+	waveSig map[string]*advert // newest advertisement of each Wave Plus, by name; only rssi and at are set
 }
+
+// waveSigFresh is how recent an advertisement must be for its signal
+// strength to stand for a Wave Plus read: a read does not scan, and BlueZ
+// forgets a device's RSSI soon after it stops advertising.
+const waveSigFresh = 10 * time.Minute
 
 // advert is what the newest advertisement of a thermometer said.
 type advert struct {
@@ -110,7 +116,7 @@ func New(cfg Config, rd Reader, ln Listener, sink Sink, log *slog.Logger) *Polle
 		return ds
 	}
 	cfg.Waves, cfg.Thermometers = name(cfg.Waves), name(cfg.Thermometers)
-	return &Poller{cfg: cfg, rd: rd, ln: ln, sink: sink, log: log, now: time.Now, sleep: sleepCtx, heard: map[string]*advert{}}
+	return &Poller{cfg: cfg, rd: rd, ln: ln, sink: sink, log: log, now: time.Now, sleep: sleepCtx, heard: map[string]*advert{}, waveSig: map[string]*advert{}}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) {
@@ -141,6 +147,12 @@ func (p *Poller) Run(ctx context.Context) {
 }
 
 func (p *Poller) runWaves(ctx context.Context) {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	for _, d := range p.cfg.Waves {
+		wg.Add(1)
+		go func() { defer wg.Done(); p.listenWave(ctx, d) }()
+	}
 	t := time.NewTicker(p.cfg.WaveInterval)
 	defer t.Stop()
 	for {
@@ -166,11 +178,12 @@ func (p *Poller) PollWaves(ctx context.Context) {
 
 func (p *Poller) pollWave(ctx context.Context, d Device) {
 	var (
-		r   wave.Reading
-		err error
+		r    wave.Reading
+		rssi int16
+		err  error
 	)
 	for attempt := 1; attempt <= p.cfg.Attempts; attempt++ {
-		r, err = p.readWave(ctx, d)
+		r, rssi, err = p.readWave(ctx, d)
 		if err == nil {
 			break
 		}
@@ -185,22 +198,22 @@ func (p *Poller) pollWave(ctx context.Context, d Device) {
 	if err != nil {
 		return
 	}
-	p.sink.Add(p.series(d.Name, p.now(), r.Metrics())...)
+	p.sink.Add(p.series(d.Name, p.now(), r.Metrics(p.waveRSSI(d, rssi)))...)
 	p.log.Info("read", "device", d.Name)
 }
 
-func (p *Poller) readWave(ctx context.Context, d Device) (wave.Reading, error) {
+func (p *Poller) readWave(ctx context.Context, d Device) (wave.Reading, int16, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.Timeout)
 	defer cancel()
-	raw, err := p.rd.Read(ctx, d.MAC, wave.CurrentValues)
+	raw, rssi, err := p.rd.Read(ctx, d.MAC, wave.CurrentValues)
 	if err != nil {
-		return wave.Reading{}, err
+		return wave.Reading{}, 0, err
 	}
 	r, err := wave.Parse(raw)
 	if err != nil {
-		return wave.Reading{}, fmt.Errorf("decode: %w", err)
+		return wave.Reading{}, 0, fmt.Errorf("decode: %w", err)
 	}
-	return r, nil
+	return r, rssi, nil
 }
 
 func (p *Poller) runThermometers(ctx context.Context) {
@@ -233,6 +246,37 @@ func (p *Poller) listen(ctx context.Context, d Device) {
 		p.log.Warn("listen failed", "device", d.Name, "err", err)
 		p.sleep(ctx, p.cfg.RetryDelay)
 	}
+}
+
+// listenWave keeps a scan for a Wave Plus going, only to learn its signal
+// strength; the values come from reading it.
+func (p *Poller) listenWave(ctx context.Context, d Device) {
+	for ctx.Err() == nil {
+		err := p.ln.Listen(ctx, d.MAC, wave.CompanyID, "", func(a bluez.Advert) {
+			if a.RSSI == 0 {
+				return
+			}
+			p.mu.Lock()
+			p.waveSig[d.Name] = &advert{at: p.now(), rssi: a.RSSI}
+			p.mu.Unlock()
+		})
+		if ctx.Err() != nil {
+			return
+		}
+		p.log.Warn("listen failed", "device", d.Name, "err", err)
+		p.sleep(ctx, p.cfg.RetryDelay)
+	}
+}
+
+// waveRSSI is the freshest signal strength known for a Wave Plus: what its
+// advertisements said, else what the read itself found (zero for none).
+func (p *Poller) waveRSSI(d Device, fromRead int16) int16 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if a := p.waveSig[d.Name]; a != nil && p.now().Sub(a.at) <= waveSigFresh {
+		return a.rssi
+	}
+	return fromRead
 }
 
 func (p *Poller) hear(d Device, a bluez.Advert) {

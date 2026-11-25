@@ -3,6 +3,8 @@ package wave
 import (
 	"encoding/hex"
 	"testing"
+
+	"github.com/hughobrien/btpolld/internal/metric"
 )
 
 func TestParse(t *testing.T) {
@@ -36,5 +38,22 @@ func TestParseErrors(t *testing.T) {
 		if _, err := Parse(b); err == nil {
 			t.Errorf("%s: want error", name)
 		}
+	}
+}
+
+func TestMetricsRSSI(t *testing.T) {
+	has := func(ms []metric.Metric) bool {
+		for _, m := range ms {
+			if m.Name == "airthings_rssi_dbm" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(Reading{}.Metrics(-64)) {
+		t.Error("rssi series missing")
+	}
+	if has(Reading{}.Metrics(0)) {
+		t.Error("rssi series present without a signal reading")
 	}
 }

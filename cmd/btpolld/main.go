@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -148,10 +149,17 @@ func run(args []string, getenv func(string) string) error {
 	defer bt.Close()
 
 	p := poll.New(poll.Config{Job: *job, Waves: waves, Thermometers: thermos, WaveInterval: *waveEvery, ThermoInterval: *thermoEvery},
-		bt, bt, promwrite.NewPushers(targets, nil), log)
+		bt, bt, promwrite.NewPushers(targets, pushClient()), log)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	log.Info("started", "version", version, "waves", len(waves), "thermometers", len(thermos), "targets", len(targets))
 	p.Run(ctx)
 	return nil
+}
+
+// pushClient opens a fresh connection for each push. Pushes are a minute or
+// more apart, about when VictoriaMetrics closes an idle connection, so a kept
+// one is often found dead (EOF) just as it is reused.
+func pushClient() *http.Client {
+	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
 }

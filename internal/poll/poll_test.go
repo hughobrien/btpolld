@@ -21,14 +21,16 @@ type fakeReader struct {
 	mu     sync.Mutex
 	calls  []string
 	script []func() ([]byte, error)
+	rssi   int16
 }
 
-func (f *fakeReader) Read(_ context.Context, mac, uuid string) ([]byte, error) {
+func (f *fakeReader) Read(_ context.Context, mac, uuid string) ([]byte, int16, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, mac+" "+uuid)
 	i := min(len(f.calls)-1, len(f.script)-1)
-	return f.script[i]()
+	b, err := f.script[i]()
+	return b, f.rssi, err
 }
 
 func ok(h string) func() ([]byte, error) {
@@ -242,5 +244,21 @@ func TestRunListensRestartsAndSamples(t *testing.T) {
 	<-done
 	if ln.calls != 2 {
 		t.Fatalf("listen calls %d", ln.calls)
+	}
+}
+
+func TestWaveRSSIPrefersFreshAdvert(t *testing.T) {
+	d := Device{Name: "w", MAC: "aa"}
+	p := newPoller(nil, &fakeListener{}, &sink{}, Config{Waves: []Device{d}})
+	if got := p.waveRSSI(d, -70); got != -70 {
+		t.Errorf("no advert: got %d, want the read's -70", got)
+	}
+	p.waveSig["w"] = &advert{at: p.now(), rssi: -60}
+	if got := p.waveRSSI(d, -70); got != -60 {
+		t.Errorf("fresh advert: got %d, want -60", got)
+	}
+	p.waveSig["w"].at = p.now().Add(-time.Hour)
+	if got := p.waveRSSI(d, -70); got != -70 {
+		t.Errorf("stale advert: got %d, want the read's -70", got)
 	}
 }

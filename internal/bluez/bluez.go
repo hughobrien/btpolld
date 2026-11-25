@@ -51,26 +51,30 @@ func (c *Client) managed(ctx context.Context) (objects, error) {
 
 // Read connects to the device at mac (as 00:11:22:33:44:55), reads the
 // characteristic with the given UUID and disconnects. ctx bounds the whole
-// exchange, scanning included.
-func (c *Client) Read(ctx context.Context, mac, uuid string) ([]byte, error) {
+// exchange, scanning included. rssi is the signal strength BlueZ last heard
+// from the device in dBm, or zero if it has none.
+func (c *Client) Read(ctx context.Context, mac, uuid string) (val []byte, rssi int16, err error) {
 	objs, err := c.managed(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list bluez objects: %w", err)
+		return nil, 0, fmt.Errorf("list bluez objects: %w", err)
 	}
 	adapter, ok := findAdapter(objs)
 	if !ok {
-		return nil, errors.New("no bluetooth adapter (is bluetooth enabled?)")
+		return nil, 0, errors.New("no bluetooth adapter (is bluetooth enabled?)")
 	}
 	dev := devicePath(adapter, mac)
 	if _, known := objs[dev]; !known {
 		if err := c.discover(ctx, adapter, dev); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
 	d := c.conn.Object(service, dev)
+	if v, err := d.GetProperty(deviceIf + ".RSSI"); err == nil {
+		rssi, _ = v.Value().(int16)
+	}
 	if err := d.CallWithContext(ctx, deviceIf+".Connect", 0).Err; err != nil {
-		return nil, fmt.Errorf("connect: %w", err)
+		return nil, 0, fmt.Errorf("connect: %w", err)
 	}
 	defer func() {
 		dctx, cancel := context.WithTimeout(context.Background(), disconnectT)
@@ -86,23 +90,22 @@ func (c *Client) Read(ctx context.Context, mac, uuid string) ([]byte, error) {
 		b, _ := v.Value().(bool)
 		return b, nil
 	}); err != nil {
-		return nil, fmt.Errorf("resolve services: %w", err)
+		return nil, 0, fmt.Errorf("resolve services: %w", err)
 	}
 
 	objs, err = c.managed(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list bluez objects: %w", err)
+		return nil, 0, fmt.Errorf("list bluez objects: %w", err)
 	}
 	ch, ok := findCharacteristic(objs, dev, uuid)
 	if !ok {
-		return nil, fmt.Errorf("device has no characteristic %s", uuid)
+		return nil, 0, fmt.Errorf("device has no characteristic %s", uuid)
 	}
-	var val []byte
 	err = c.conn.Object(service, ch).CallWithContext(ctx, charIf+".ReadValue", 0, map[string]dbus.Variant{}).Store(&val)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", uuid, err)
+		return nil, 0, fmt.Errorf("read %s: %w", uuid, err)
 	}
-	return val, nil
+	return val, rssi, nil
 }
 
 // discover scans until BlueZ knows the device at path dev.

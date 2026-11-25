@@ -46,6 +46,7 @@ type Device struct {
 	Name     string // the device label; defaults to the address
 	MAC      string
 	Interval time.Duration // zero takes the Config default for its kind
+	Prefix   string        // replaces the kind's metric name prefix (airthings, switchbot); empty keeps it
 }
 
 // Config holds the poller's settings. Zero durations and Attempts take the
@@ -215,7 +216,7 @@ func (p *Poller) pollWave(ctx context.Context, d Device) {
 	if err != nil {
 		return
 	}
-	p.sink.Add(p.series(d.Name, p.now(), r.Metrics(p.waveRSSI(d, rssi)))...)
+	p.sink.Add(p.series(d.Name, p.now(), metric.Rename(r.Metrics(p.waveRSSI(d, rssi)), wave.Prefix, d.Prefix))...)
 	p.log.Info("read", "device", d.Name)
 }
 
@@ -330,7 +331,7 @@ func (p *Poller) record(d Device, adv *advert, at time.Time) {
 	if last := p.last[d.Name]; last != nil && !at.After(last.at) {
 		return
 	}
-	p.sink.Add(p.series(d.Name, at, adv.reading.Metrics(adv.battery, adv.rssi))...)
+	p.sink.Add(p.series(d.Name, at, metric.Rename(adv.reading.Metrics(adv.battery, adv.rssi), switchbot.Prefix, d.Prefix))...)
 	rec := *adv
 	rec.at = at
 	p.last[d.Name] = &rec

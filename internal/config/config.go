@@ -5,6 +5,7 @@
 //
 //	[poll]                     # connect, read, disconnect
 //	interval = "15m"
+//	prefix = "airthings"       # metric name prefix; this is the default
 //	  [[poll.device]]
 //	  name = "den"
 //	  type = "wave-plus"
@@ -22,11 +23,13 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -34,6 +37,8 @@ import (
 
 	"github.com/hughobrien/btpolld/internal/poll"
 )
+
+var metricPrefix = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // Device types, and the section each belongs in.
 const (
@@ -63,6 +68,7 @@ type file struct {
 
 type section struct {
 	Interval string   `toml:"interval"`
+	Prefix   string   `toml:"prefix"`
 	Device   []device `toml:"device"`
 }
 
@@ -71,6 +77,7 @@ type device struct {
 	Type     string `toml:"type"`
 	MAC      string `toml:"mac"`
 	Interval string `toml:"interval"`
+	Prefix   string `toml:"prefix"`
 }
 
 // Load reads and validates the file at path.
@@ -119,7 +126,7 @@ func Parse(b []byte) (Config, error) {
 		return Config{}, err
 	}
 	names, macs := map[string]bool{}, map[string]bool{}
-	read := func(sec string, ds []device, want string) ([]poll.Device, error) {
+	read := func(sec, secPrefix string, ds []device, want string) ([]poll.Device, error) {
 		var out []poll.Device
 		for i, d := range ds {
 			at := fmt.Sprintf("%s.device[%d]", sec, i)
@@ -143,15 +150,19 @@ func Parse(b []byte) (Config, error) {
 			if err != nil {
 				return nil, err
 			}
+			prefix := cmp.Or(d.Prefix, secPrefix)
+			if prefix != "" && !metricPrefix.MatchString(prefix) {
+				return nil, fmt.Errorf("config: %s: prefix must be letters, digits and _, not starting with a digit", at)
+			}
 			names[d.Name], macs[mac] = true, true
-			out = append(out, poll.Device{Name: d.Name, MAC: mac, Interval: iv})
+			out = append(out, poll.Device{Name: d.Name, MAC: mac, Interval: iv, Prefix: prefix})
 		}
 		return out, nil
 	}
-	if c.Waves, err = read("poll", f.Poll.Device, WavePlus); err != nil {
+	if c.Waves, err = read("poll", f.Poll.Prefix, f.Poll.Device, WavePlus); err != nil {
 		return Config{}, err
 	}
-	if c.Thermometers, err = read("broadcast", f.Broadcast.Device, Thermometer); err != nil {
+	if c.Thermometers, err = read("broadcast", f.Broadcast.Prefix, f.Broadcast.Device, Thermometer); err != nil {
 		return Config{}, err
 	}
 	if len(c.Waves)+len(c.Thermometers) == 0 {

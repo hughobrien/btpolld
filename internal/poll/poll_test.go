@@ -341,3 +341,24 @@ func TestBroadcastKeepsLastBattery(t *testing.T) {
 		t.Errorf("battery %v, want the last known 85", got)
 	}
 }
+
+func TestPrefixRenamesSeries(t *testing.T) {
+	s := &sink{}
+	d := []Device{{Name: "den", MAC: "00:11:22:33:44:55", Prefix: "wave"}}
+	newPoller(&fakeReader{script: []func() ([]byte, error){ok(goodRaw)}}, nil, s, Config{Waves: d}).PollWaves(context.Background())
+	v := s.values("den")
+	if v["wave_co2_ppm"] != 838 {
+		t.Errorf("renamed series missing: %v", v)
+	}
+	if _, has := v["airthings_co2_ppm"]; has {
+		t.Error("old name still pushed")
+	}
+
+	s = &sink{}
+	pr := []Device{{Name: "probe", MAC: "00:11:22:33:44:66", Prefix: "fridge"}}
+	p := newPoller(nil, nil, s, Config{Thermometers: pr})
+	p.hear(pr[0], mkAdvert(t, "aabbccddeeff1b0203962600", -90))
+	if s.values("probe")["fridge_temperature_celsius"] != 22.3 {
+		t.Errorf("renamed thermometer series missing: %v", s.values("probe"))
+	}
+}

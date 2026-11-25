@@ -110,3 +110,39 @@ func TestExampleFileLoads(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 }
+
+func TestPrefix(t *testing.T) {
+	c, err := Parse([]byte(`push = ["http://a:1"]
+[poll]
+prefix = "wave"
+  [[poll.device]]
+  name = "a"
+  type = "wave-plus"
+  mac = "aa:bb:cc:00:11:01"
+  [[poll.device]]
+  name = "b"
+  type = "wave-plus"
+  mac = "aa:bb:cc:00:11:02"
+  prefix = "loft"
+[[broadcast.device]]
+name = "p"
+type = "switchbot-thermometer"
+mac = "aa:bb:cc:00:11:03"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Waves[0].Prefix != "wave" || c.Waves[1].Prefix != "loft" || c.Thermometers[0].Prefix != "" {
+		t.Errorf("%q %q %q", c.Waves[0].Prefix, c.Waves[1].Prefix, c.Thermometers[0].Prefix)
+	}
+	for _, bad := range []string{"9lives", "a-b", "a b"} {
+		_, err := Parse([]byte(`push = ["http://a:1"]
+[[poll.device]]
+name = "a"
+type = "wave-plus"
+mac = "aa:bb:cc:00:11:01"
+prefix = "` + bad + `"`))
+		if err == nil {
+			t.Errorf("prefix %q accepted", bad)
+		}
+	}
+}

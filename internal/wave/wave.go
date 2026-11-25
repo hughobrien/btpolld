@@ -15,6 +15,10 @@ const (
 	CurrentValues = "b42e2a68-ade7-11e4-89d3-123b93f75cba"
 )
 
+// Prefix starts the name of every series a Wave Plus reports (airthings_co2_ppm
+// and so on); a device may be given another.
+const Prefix = "airthings"
+
 // CompanyID is Airthings' Bluetooth SIG company identifier, as it appears in
 // the manufacturer data of the device's advertisements.
 const CompanyID = 0x0334

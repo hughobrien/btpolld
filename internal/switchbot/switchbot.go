@@ -10,6 +10,10 @@ import (
 	"github.com/hughobrien/btpolld/internal/metric"
 )
 
+// Prefix starts the name of every series a thermometer reports
+// (switchbot_temperature_celsius and so on); a device may be given another.
+const Prefix = "switchbot"
+
 // CompanyID is SwitchBot's Bluetooth SIG company identifier, as it appears in
 // the manufacturer data of the device's advertisements.
 const CompanyID = 0x0969

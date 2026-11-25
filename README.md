@@ -33,6 +33,11 @@ switchbot_battery_percent    (absent until the device sends it)
 switchbot_rssi_dbm           (signal strength at the host)
 ```
 
+Names start with `airthings_` or `switchbot_`. Set `prefix` on a section, or
+on one device, to change that part (`prefix = "wave"` gives `wave_co2_ppm`);
+leave it out and the names are as above. The dashboard in `grafana/` uses the
+defaults, so edit its queries if you change them.
+
 Every series carries `job` (`job` in the config, default `btpolld`) and `device`. A device
 that cannot be read or heard simply has no sample: a gap, not a flat line.
 
@@ -69,6 +74,7 @@ job = "btpolld"
 # no faster than the device updates.
 [poll]
 interval = "15m"                # default for every device in this section
+# prefix = "airthings"          # metric name prefix (the default): airthings_co2_ppm, ...
 
   [[poll.device]]
   name = "den"                  # becomes the `device` label
@@ -80,6 +86,7 @@ interval = "15m"                # default for every device in this section
   type = "wave-plus"
   mac  = "AA:BB:CC:00:11:02"
   interval = "10m"              # overrides the section default
+  # prefix = "wave"             # a device may have its own: wave_co2_ppm, ...
 
 # Devices that broadcast their values: we only listen, never connect.
 # A reading is recorded the moment a changed one is heard; `interval` is how
@@ -88,6 +95,7 @@ interval = "15m"                # default for every device in this section
 # is left as a gap.
 [broadcast]
 interval = "1m"
+# prefix = "switchbot"          # the default: switchbot_temperature_celsius, ...
 
   [[broadcast.device]]
   name = "probe"

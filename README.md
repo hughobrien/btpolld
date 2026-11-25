@@ -42,12 +42,101 @@ that cannot be read or heard simply has no sample: a gap, not a flat line.
 btpolld --config /etc/btpolld.toml
 ```
 
-`deploy/btpolld.toml.example` is the config, commented; copy it and fill in
-the push URL and the devices. `push` is a list of remote write URLs; credentials
-may go in the URL (`http://user:password@host:8428`), so keep the file
-readable by btpolld alone. `interval` is set per section, and a device can
-override it. `deploy/btpolld.service` is a systemd unit. The host needs BlueZ
-running. Errors never repeat what the file says.
+`push` is a list of remote write URLs; credentials may go in the URL
+(`http://user:password@host:8428`), so keep the file readable by btpolld alone.
+`interval` is set per section, and a device can override it. The host needs
+BlueZ running. Errors never repeat what the file says.
+
+### Config
+
+`/etc/btpolld.toml` (also in `deploy/btpolld.toml.example`; the addresses are invented):
+
+```toml
+# btpolld config. Install as /etc/btpolld.toml, owned by root and readable by
+# the btpolld user only (chmod 0640, chgrp btpolld): a push URL may hold a
+# password. The addresses below are invented.
+
+# Where to push, as remote write base URLs (VictoriaMetrics, or Prometheus with
+# its receiver on). One is the usual case; with several, each gets everything.
+# Credentials may go in the URL: http://user:password@host:8428
+push = ["http://metrics.example:8428"]
+
+# The `job` label on every pushed series. Optional.
+job = "btpolld"
+
+# Devices we connect to: read the current values, disconnect. A connection
+# costs the device's battery and fails now and then (it is retried), so poll
+# no faster than the device updates.
+[poll]
+interval = "15m"                # default for every device in this section
+
+  [[poll.device]]
+  name = "den"                  # becomes the `device` label
+  type = "wave-plus"            # Airthings Wave Plus
+  mac  = "AA:BB:CC:00:11:01"
+
+  [[poll.device]]
+  name = "loft"
+  type = "wave-plus"
+  mac  = "AA:BB:CC:00:11:02"
+  interval = "10m"              # overrides the section default
+
+# Devices that broadcast their values: we only listen, never connect.
+# A reading is recorded the moment a changed one is heard; `interval` is how
+# often a steady reading is repeated (so it plots as a line, not a gap) and how
+# often what has been recorded is pushed. A device unheard for three intervals
+# is left as a gap.
+[broadcast]
+interval = "1m"
+
+  [[broadcast.device]]
+  name = "probe"
+  type = "switchbot-thermometer"
+  mac  = "AA:BB:CC:00:11:03"
+```
+
+### systemd
+
+`deploy/btpolld.service`:
+
+```ini
+# systemd unit for btpolld on a plain Linux host with BlueZ (Raspberry Pi OS,
+# Debian). Copy deploy/btpolld.toml.example to /etc/btpolld.toml, fill it in,
+# and make it readable by btpolld alone (it may hold a push password):
+#
+#   useradd --system btpolld
+#   install -m 0755 btpolld /usr/local/bin/
+#   install -m 0640 -g btpolld btpolld.toml.example /etc/btpolld.toml
+#
+[Unit]
+Description=Bluetooth LE sensors to remote write
+Wants=bluetooth.service
+After=bluetooth.service network-online.target
+Wants=network-online.target
+
+[Service]
+User=btpolld
+ExecStart=/usr/local/bin/btpolld --config /etc/btpolld.toml
+Restart=on-failure
+RestartSec=30s
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+
+[Install]
+WantedBy=multi-user.target
+```
 
 `just build-pi` makes a static binary for a Raspberry Pi Zero (armv6).
 `grafana/btpolld.json` is an importable dashboard (Wave Plus only so far).

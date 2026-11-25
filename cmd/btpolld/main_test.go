@@ -42,3 +42,21 @@ func TestMissingConfigNamesThePath(t *testing.T) {
 }
 
 func writeFile(path, s string) error { return os.WriteFile(path, []byte(s), 0o600) }
+
+// The README shows the example config and the unit; they must be the files in
+// deploy/, not copies that have drifted.
+func TestReadmeShowsDeployFiles(t *testing.T) {
+	readme, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"btpolld.toml.example", "btpolld.service"} {
+		b, err := os.ReadFile("../../deploy/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(readme), strings.TrimRight(string(b), "\n")) {
+			t.Errorf("README.md does not contain deploy/%s verbatim", f)
+		}
+	}
+}

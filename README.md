@@ -32,10 +32,12 @@ switchbot_battery_percent    (absent until the device sends it)
 switchbot_rssi_dbm           (signal strength at the host)
 ```
 
-Names start with `airthings_` or `switchbot_`. Set `prefix` on a section, or
-on one device, to change that part (`prefix = "wave"` gives `wave_co2_ppm`);
-leave it out and the names are as above. The dashboard in `grafana/` uses the
-defaults, so edit its queries if you change them.
+Names start with `airthings_` or `switchbot_`. Set `prefix` in a
+`[family.<type>]` table to change that part for every device of one type
+(`prefix = "wave"` gives `wave_co2_ppm`); leave it out and the names are as
+above. The dashboard in `grafana/` uses the defaults, so edit its queries if
+you change them. To tell devices of one type apart, each already has its
+`device` label; a device can also carry extra labels (`labels = { room = "den" }`).
 
 Every series carries `job` (`job` in the config, default `btpolld`) and `device`. A device
 that cannot be read or heard simply has no sample: a gap, not a flat line.
@@ -73,7 +75,6 @@ job = "btpolld"
 # no faster than the device updates.
 [poll]
 interval = "15m"                # default for every device in this section
-# prefix = "airthings"          # metric name prefix (the default): airthings_co2_ppm, ...
 
   [[poll.device]]
   name = "den"                  # becomes the `device` label
@@ -85,7 +86,7 @@ interval = "15m"                # default for every device in this section
   type = "wave-plus"
   mac  = "AA:BB:CC:00:11:02"
   interval = "10m"              # overrides the section default
-  # prefix = "wave"             # a device may have its own: wave_co2_ppm, ...
+  # labels = { room = "loft" }  # extra labels on this device's series
 
 # Devices that broadcast their values: we only listen, never connect.
 # A reading is recorded the moment a changed one is heard; `interval` is how
@@ -94,12 +95,19 @@ interval = "15m"                # default for every device in this section
 # is left as a gap.
 [broadcast]
 interval = "1m"
-# prefix = "switchbot"          # the default: switchbot_temperature_celsius, ...
 
   [[broadcast.device]]
   name = "probe"
   type = "switchbot-thermometer"
   mac  = "AA:BB:CC:00:11:03"
+
+# Metric names start with a prefix per device type. These are the defaults, so
+# this section can be left out; set one to rename every device of that type
+# (wave-plus = "wave" gives wave_co2_ppm, ...).
+# [family.wave-plus]
+# prefix = "airthings"
+# [family.switchbot-thermometer]
+# prefix = "switchbot"
 ```
 
 ### systemd

@@ -111,19 +111,19 @@ func TestExampleFileLoads(t *testing.T) {
 	}
 }
 
-func TestPrefix(t *testing.T) {
+func TestFamilyPrefixAndLabels(t *testing.T) {
 	c, err := Parse([]byte(`push = ["http://a:1"]
-[poll]
+[family.wave-plus]
 prefix = "wave"
-  [[poll.device]]
-  name = "a"
-  type = "wave-plus"
-  mac = "aa:bb:cc:00:11:01"
-  [[poll.device]]
-  name = "b"
-  type = "wave-plus"
-  mac = "aa:bb:cc:00:11:02"
-  prefix = "loft"
+[[poll.device]]
+name = "a"
+type = "wave-plus"
+mac = "aa:bb:cc:00:11:01"
+labels = { room = "den" }
+[[poll.device]]
+name = "b"
+type = "wave-plus"
+mac = "aa:bb:cc:00:11:02"
 [[broadcast.device]]
 name = "p"
 type = "switchbot-thermometer"
@@ -131,18 +131,36 @@ mac = "aa:bb:cc:00:11:03"`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Waves[0].Prefix != "wave" || c.Waves[1].Prefix != "loft" || c.Thermometers[0].Prefix != "" {
-		t.Errorf("%q %q %q", c.Waves[0].Prefix, c.Waves[1].Prefix, c.Thermometers[0].Prefix)
+	if c.Waves[0].Prefix != "wave" || c.Waves[1].Prefix != "wave" || c.Thermometers[0].Prefix != "" {
+		t.Errorf("prefixes %q %q %q", c.Waves[0].Prefix, c.Waves[1].Prefix, c.Thermometers[0].Prefix)
 	}
-	for _, bad := range []string{"9lives", "a-b", "a b"} {
-		_, err := Parse([]byte(`push = ["http://a:1"]
-[[poll.device]]
+	if c.Waves[0].Labels["room"] != "den" || len(c.Waves[1].Labels) != 0 {
+		t.Errorf("labels %v %v", c.Waves[0].Labels, c.Waves[1].Labels)
+	}
+}
+
+func TestFamilyAndLabelErrors(t *testing.T) {
+	dev := `[[poll.device]]
 name = "a"
 type = "wave-plus"
 mac = "aa:bb:cc:00:11:01"
-prefix = "` + bad + `"`))
-		if err == nil {
-			t.Errorf("prefix %q accepted", bad)
+`
+	push := `push = ["http://a:1"]` + "\n"
+	for name, text := range map[string]string{
+		"unknown family":  push + "[family.kettle]\nprefix = \"k\"\n" + dev,
+		"bad prefix":      push + "[family.wave-plus]\nprefix = \"9lives\"\n" + dev,
+		"dash in prefix":  push + "[family.wave-plus]\nprefix = \"a-b\"\n" + dev,
+		"label job":       push + dev + `labels = { job = "x" }` + "\n",
+		"label device":    push + dev + `labels = { device = "x" }` + "\n",
+		"label reserved":  push + dev + `labels = { __name__ = "x" }` + "\n",
+		"label bad chars": push + dev + `labels = { "a-b" = "x" }` + "\n",
+	} {
+		if _, err := Parse([]byte(text)); err == nil {
+			t.Errorf("%s: accepted", name)
 		}
+	}
+	// A prefix on a section or device is the old shape and is no longer known.
+	if _, err := Parse([]byte(push + "[poll]\nprefix = \"x\"\n" + dev)); err == nil {
+		t.Error("a section prefix was accepted")
 	}
 }

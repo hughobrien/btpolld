@@ -344,7 +344,7 @@ func TestBroadcastKeepsLastBattery(t *testing.T) {
 
 func TestPrefixRenamesSeries(t *testing.T) {
 	s := &sink{}
-	d := []Device{{Name: "den", MAC: "00:11:22:33:44:55", Prefix: "wave"}}
+	d := []Device{{Name: "den", MAC: "00:11:22:33:44:55", Prefix: "wave", Labels: map[string]string{"room": "den"}}}
 	newPoller(&fakeReader{script: []func() ([]byte, error){ok(goodRaw)}}, nil, s, Config{Waves: d}).PollWaves(context.Background())
 	v := s.values("den")
 	if v["wave_co2_ppm"] != 838 {
@@ -352,6 +352,9 @@ func TestPrefixRenamesSeries(t *testing.T) {
 	}
 	if _, has := v["airthings_co2_ppm"]; has {
 		t.Error("old name still pushed")
+	}
+	if got := s.series[0].Labels["room"]; got != "den" || s.series[0].Labels["device"] != "den" || s.series[0].Labels["job"] != "btpolld" {
+		t.Errorf("labels %v", s.series[0].Labels)
 	}
 
 	s = &sink{}

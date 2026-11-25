@@ -30,7 +30,8 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
-SystemCallFilter=@system-service ~@privileged
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
 
 [Install]
 WantedBy=multi-user.target

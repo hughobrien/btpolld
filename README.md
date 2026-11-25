@@ -4,7 +4,7 @@ Reads Bluetooth LE sensors through BlueZ and pushes every reading with remote
 write (VictoriaMetrics, or Prometheus with its receiver on). It serves
 nothing: no `/metrics`, no HTTP. Go; the dependencies are `godbus/dbus` and,
 through the shared `promwrite` package, `prometheus/client_golang`. It
-descends from aird, which only knew the Wave Plus and is in git history.
+grew out of aird, which only knew the Wave Plus (and is gone).
 
 ## Devices
 

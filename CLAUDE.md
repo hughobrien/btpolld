@@ -1,6 +1,6 @@
 # btpolld: notes for agents
 
-Pushes Bluetooth LE sensor readings with remote write, running on a Raspberry Pi Zero W near the sensors, to a VictoriaMetrics on another host. Grew out of aird (git history of `../aird`). Siblings: `../kasad`, `../emporiad`, `../comfortd`, `../breezyd`. Follow their conventions.
+Pushes Bluetooth LE sensor readings with remote write, running on a Raspberry Pi Zero W near the sensors, to a VictoriaMetrics on another host. Grew out of aird (the Wave Plus exporter; its repo is deleted). Siblings: `../kasad`, `../emporiad`, `../comfortd`, `../breezyd`. Follow their conventions.
 
 ## Hard rules
 

@@ -5,11 +5,14 @@
 //
 //	[poll]                     # connect, read, disconnect
 //	interval = "15m"
-//	prefix = "airthings"       # metric name prefix; this is the default
 //	  [[poll.device]]
 //	  name = "den"
 //	  type = "wave-plus"
 //	  mac  = "00:11:22:33:44:55"
+//	  labels = { room = "den" }  # extra labels on this device's series
+//
+//	[family.wave-plus]         # per device type: the metric name prefix
+//	prefix = "airthings"       # (this is the default; leave the table out to keep it)
 //
 //	[broadcast]                # listen to what the device advertises
 //	interval = "1m"
@@ -23,7 +26,6 @@
 package config
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"net"
@@ -38,7 +40,10 @@ import (
 	"github.com/hughobrien/btpolld/internal/poll"
 )
 
-var metricPrefix = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+var (
+	metricPrefix = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	labelName    = metricPrefix
+)
 
 // Device types, and the section each belongs in.
 const (
@@ -60,24 +65,29 @@ type Config struct {
 }
 
 type file struct {
-	Push      []string `toml:"push"`
-	Job       string   `toml:"job"`
-	Poll      section  `toml:"poll"`
-	Broadcast section  `toml:"broadcast"`
+	Push      []string          `toml:"push"`
+	Job       string            `toml:"job"`
+	Poll      section           `toml:"poll"`
+	Broadcast section           `toml:"broadcast"`
+	Family    map[string]family `toml:"family"`
+}
+
+// family holds what is shared by every device of one type.
+type family struct {
+	Prefix string `toml:"prefix"`
 }
 
 type section struct {
 	Interval string   `toml:"interval"`
-	Prefix   string   `toml:"prefix"`
 	Device   []device `toml:"device"`
 }
 
 type device struct {
-	Name     string `toml:"name"`
-	Type     string `toml:"type"`
-	MAC      string `toml:"mac"`
-	Interval string `toml:"interval"`
-	Prefix   string `toml:"prefix"`
+	Name     string            `toml:"name"`
+	Type     string            `toml:"type"`
+	MAC      string            `toml:"mac"`
+	Interval string            `toml:"interval"`
+	Labels   map[string]string `toml:"labels"`
 }
 
 // Load reads and validates the file at path.
@@ -125,8 +135,18 @@ func Parse(b []byte) (Config, error) {
 	if c.ThermoInterval, err = duration("broadcast.interval", f.Broadcast.Interval); err != nil {
 		return Config{}, err
 	}
+	prefixes := map[string]string{}
+	for typ, fam := range f.Family {
+		if typ != WavePlus && typ != Thermometer {
+			return Config{}, fmt.Errorf("config: family.%s is not a device type (want %q or %q)", typ, WavePlus, Thermometer)
+		}
+		if fam.Prefix != "" && !metricPrefix.MatchString(fam.Prefix) {
+			return Config{}, fmt.Errorf("config: family.%s: prefix must be letters, digits and _, not starting with a digit", typ)
+		}
+		prefixes[typ] = fam.Prefix
+	}
 	names, macs := map[string]bool{}, map[string]bool{}
-	read := func(sec, secPrefix string, ds []device, want string) ([]poll.Device, error) {
+	read := func(sec string, ds []device, want string) ([]poll.Device, error) {
 		var out []poll.Device
 		for i, d := range ds {
 			at := fmt.Sprintf("%s.device[%d]", sec, i)
@@ -150,19 +170,20 @@ func Parse(b []byte) (Config, error) {
 			if err != nil {
 				return nil, err
 			}
-			prefix := cmp.Or(d.Prefix, secPrefix)
-			if prefix != "" && !metricPrefix.MatchString(prefix) {
-				return nil, fmt.Errorf("config: %s: prefix must be letters, digits and _, not starting with a digit", at)
+			for k := range d.Labels {
+				if !labelName.MatchString(k) || strings.HasPrefix(k, "__") || k == "job" || k == "device" {
+					return nil, fmt.Errorf("config: %s: labels cannot use the name %q (letters, digits and _; not job, device or __*)", at, k)
+				}
 			}
 			names[d.Name], macs[mac] = true, true
-			out = append(out, poll.Device{Name: d.Name, MAC: mac, Interval: iv, Prefix: prefix})
+			out = append(out, poll.Device{Name: d.Name, MAC: mac, Interval: iv, Prefix: prefixes[want], Labels: d.Labels})
 		}
 		return out, nil
 	}
-	if c.Waves, err = read("poll", f.Poll.Prefix, f.Poll.Device, WavePlus); err != nil {
+	if c.Waves, err = read("poll", f.Poll.Device, WavePlus); err != nil {
 		return Config{}, err
 	}
-	if c.Thermometers, err = read("broadcast", f.Broadcast.Prefix, f.Broadcast.Device, Thermometer); err != nil {
+	if c.Thermometers, err = read("broadcast", f.Broadcast.Device, Thermometer); err != nil {
 		return Config{}, err
 	}
 	if len(c.Waves)+len(c.Thermometers) == 0 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -426,5 +427,36 @@ func TestNoWatchdogWithoutBroadcastDevices(t *testing.T) {
 	p := newPoller(rd, quietListener{}, &sink{}, Config{Waves: den, DeadAfter: 30 * time.Millisecond})
 	if err, early := runFor(t, p, 200*time.Millisecond); err != nil || early {
 		t.Fatalf("err %v, ended early %v; a Wave Plus alone must not arm the watchdog", err, early)
+	}
+}
+
+func unresponsive() ([]byte, error) {
+	return nil, fmt.Errorf("list bluez objects: %w: %w", bluez.ErrUnresponsive, context.DeadlineExceeded)
+}
+
+func TestRunEndsWhenBluezStuck(t *testing.T) {
+	rd := &fakeReader{script: []func() ([]byte, error){unresponsive}}
+	p := newPoller(rd, quietListener{}, &sink{}, Config{Waves: den})
+	err, early := runFor(t, p, 2*time.Second)
+	if !errors.Is(err, ErrBluezStuck) || !early {
+		t.Fatalf("err %v, ended early %v; want ErrBluezStuck well before the deadline", err, early)
+	}
+	if n := len(rd.calls); n != stuckAfter {
+		t.Errorf("%d reads, want %d", n, stuckAfter)
+	}
+}
+
+func TestOtherFailuresAreNotStuck(t *testing.T) {
+	// A device that is away fails differently; it must not restart bluetoothd,
+	// nor make one unanswered read count towards another.
+	for name, script := range map[string][]func() ([]byte, error){
+		"away":        {fail},
+		"interleaved": {unresponsive, fail, unresponsive, fail},
+	} {
+		rd := &fakeReader{script: script}
+		p := newPoller(rd, quietListener{}, &sink{}, Config{Waves: den})
+		if err, early := runFor(t, p, 200*time.Millisecond); err != nil || early {
+			t.Errorf("%s: err %v, ended early %v; want a clean end at the deadline", name, err, early)
+		}
 	}
 }

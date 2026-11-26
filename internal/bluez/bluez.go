@@ -106,7 +106,7 @@ func (c *Client) Read(ctx context.Context, mac, uuid string) (val []byte, rssi i
 
 	objs, err = c.managed(ctx)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list bluez objects: %w", err)
+		return nil, 0, fmt.Errorf("list services: %w", err)
 	}
 	ch, ok := findCharacteristic(objs, dev, uuid)
 	if !ok {

@@ -73,14 +73,16 @@ func (c *Client) Read(ctx context.Context, mac, uuid string) (val []byte, rssi i
 	if v, err := d.GetProperty(deviceIf + ".RSSI"); err == nil {
 		rssi, _ = v.Value().(int16)
 	}
-	if err := d.CallWithContext(ctx, deviceIf+".Connect", 0).Err; err != nil {
-		return nil, 0, fmt.Errorf("connect: %w", err)
-	}
+	// Disconnect even when Connect fails: a Connect that timed out here is
+	// still pending in BlueZ, and connecting pauses the scan.
 	defer func() {
 		dctx, cancel := context.WithTimeout(context.Background(), disconnectT)
 		defer cancel()
 		_ = d.CallWithContext(dctx, deviceIf+".Disconnect", 0).Err
 	}()
+	if err := d.CallWithContext(ctx, deviceIf+".Connect", 0).Err; err != nil {
+		return nil, 0, fmt.Errorf("connect: %w", err)
+	}
 
 	if err := waitTrue(ctx, func() (bool, error) {
 		v, err := d.GetProperty(deviceIf + ".ServicesResolved")

@@ -31,9 +31,16 @@ import (
 
 var version = "dev"
 
+// exitScanDead is the exit status for poll.ErrScanDead; the systemd unit
+// restarts bluetoothd on it.
+const exitScanDead = 3
+
 func main() {
 	if err := run(os.Args[1:], os.Getenv); err != nil {
 		fmt.Fprintln(os.Stderr, "btpolld:", err)
+		if errors.Is(err, poll.ErrScanDead) {
+			os.Exit(exitScanDead)
+		}
 		os.Exit(1)
 	}
 }
@@ -75,8 +82,7 @@ func run(args []string, getenv func(string) string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	log.Info("started", "version", version, "polled", len(cfg.Waves), "broadcasting", len(cfg.Thermometers), "targets", len(targets))
-	p.Run(ctx)
-	return nil
+	return p.Run(ctx)
 }
 
 var notLabel = regexp.MustCompile(`[^a-zA-Z0-9_]+`)

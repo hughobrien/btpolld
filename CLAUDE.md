@@ -27,6 +27,8 @@ Pushes Bluetooth LE sensor readings with remote write, running on a Raspberry Pi
 - The default BlueZ D-Bus policy lets any user talk to `org.bluez`, so the service runs as an unprivileged user with no extra group.
 - A SwitchBot thermometer needs no connection: temperature and humidity are in every advertisement; the battery (service data) only arrives at a good signal.
 - The collector Pi is a Pi Zero W (armv6l: `GOARCH=arm GOARM=6`, `just build-pi`), Raspberry Pi OS. Its Bluetooth is soft-blocked by default (`rfkill unblock bluetooth`). It hears the sensors about 20 dB better than the server did, which is why it exists.
+- The scan can die silently: the controller stops scanning while bluetoothd still reports `Discovering=true` (btmon shows no advertising reports; Stop Discovery is answered "Rejected"), so bluetoothd never starts a new scan for any client and restarting btpolld does not help; restarting bluetoothd does. Hence `poll.ErrScanDead`, exit status 3 and the unit's `ExecStopPost`. Healthy, measured with btmon: about 200 reports/s from about 120 addresses; a SwitchBot thermometer advertises every 2.0 s and about 40% are heard at -82 dBm (longest gap 22 s); a Wave Plus every 0.5 s (longest gap 4 s).
+- `btmon -w` still prints every frame to stdout: under `systemd-run` give it `StandardOutput=null`, or it floods the Pi's small journal (and drops frames, faking a dead scan).
 
 ## Broadcast devices record changes
 

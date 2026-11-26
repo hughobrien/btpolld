@@ -11,6 +11,7 @@ package poll
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -63,7 +64,15 @@ type Config struct {
 	Timeout        time.Duration // bound on one read, scanning and connecting included (45s)
 	RetryDelay     time.Duration // pause between attempts, and before listening again (5s)
 	FlushTimeout   time.Duration // bound on one write to a target (10s)
+	DeadAfter      time.Duration // with a broadcast device, the scan is dead when nothing listened to is heard for this long (3m)
 }
+
+// ErrScanDead is what Run returns when nothing has been heard for
+// Config.DeadAfter. Seen on a Pi Zero W: the controller stops scanning while
+// bluetoothd still believes it is scanning, so it never starts a new scan and
+// no client of it can recover; restarting bluetoothd does (the unit does that
+// when btpolld exits with this error).
+var ErrScanDead = errors.New("scan dead: nothing heard")
 
 // Poller polls and listens.
 type Poller struct {
@@ -81,6 +90,7 @@ type Poller struct {
 	heard   map[string]*advert // newest advertisement, by thermometer name
 	last    map[string]*advert // what was last recorded, by thermometer name
 	waveSig map[string]*advert // newest advertisement of each Wave Plus, by name; only rssi and at are set
+	alive   time.Time          // when anything listened to was last heard, or Run started
 }
 
 // waveSigFresh is how recent an advertisement must be for its signal
@@ -108,6 +118,7 @@ func New(cfg Config, rd Reader, ln Listener, sink Sink, log *slog.Logger) *Polle
 	def(&cfg.Timeout, 45*time.Second)
 	def(&cfg.RetryDelay, 5*time.Second)
 	def(&cfg.FlushTimeout, 10*time.Second)
+	def(&cfg.DeadAfter, 3*time.Minute)
 	if cfg.Attempts <= 0 {
 		cfg.Attempts = 3
 	}
@@ -133,10 +144,17 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 	}
 }
 
-// Run polls and listens until ctx ends, then flushes what is queued once
-// more.
-func (p *Poller) Run(ctx context.Context) {
+// Run polls and listens until ctx ends or the scan is dead (ErrScanDead),
+// then flushes what is queued once more.
+func (p *Poller) Run(ctx context.Context) error {
+	ctx, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
+	p.noteHeard()
 	var wg sync.WaitGroup
+	if len(p.cfg.Thermometers) > 0 {
+		wg.Add(1)
+		go func() { defer wg.Done(); p.watch(ctx, stop) }()
+	}
 	if len(p.cfg.Waves) > 0 {
 		wg.Add(1)
 		go func() { defer wg.Done(); p.runWaves(ctx) }()
@@ -149,6 +167,41 @@ func (p *Poller) Run(ctx context.Context) {
 	fctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	p.flush(fctx)
+	if err := context.Cause(ctx); errors.Is(err, ErrScanDead) {
+		return err
+	}
+	return nil
+}
+
+// watch ends the run with ErrScanDead once nothing listened to has been heard
+// for DeadAfter. A thermometer is the pulsar: it advertises every 2 s and a
+// healthy scan hears one at least every 22 s or so, so it only runs when a
+// broadcast device is configured (a Wave Plus advert alone is not relied on).
+func (p *Poller) watch(ctx context.Context, stop context.CancelCauseFunc) {
+	t := time.NewTicker(p.cfg.DeadAfter / 6)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		p.mu.Lock()
+		quiet := p.now().Sub(p.alive)
+		p.mu.Unlock()
+		if quiet > p.cfg.DeadAfter {
+			p.log.Error("scan dead: nothing heard", "for", quiet.Round(time.Second))
+			stop(ErrScanDead)
+			return
+		}
+	}
+}
+
+// noteHeard notes that something listened to was just heard.
+func (p *Poller) noteHeard() {
+	p.mu.Lock()
+	p.alive = p.now()
+	p.mu.Unlock()
 }
 
 func (p *Poller) runWaves(ctx context.Context) {
@@ -261,7 +314,7 @@ func (p *Poller) runThermometers(ctx context.Context) {
 // listen keeps a scan for d going, restarting it after a failure.
 func (p *Poller) listen(ctx context.Context, d Device) {
 	for ctx.Err() == nil {
-		err := p.ln.Listen(ctx, d.MAC, switchbot.CompanyID, switchbot.ServiceUUID, func(a bluez.Advert) { p.hear(d, a) })
+		err := p.ln.Listen(ctx, d.MAC, switchbot.CompanyID, switchbot.ServiceUUID, func(a bluez.Advert) { p.noteHeard(); p.hear(d, a) })
 		if ctx.Err() != nil {
 			return
 		}
@@ -275,6 +328,7 @@ func (p *Poller) listen(ctx context.Context, d Device) {
 func (p *Poller) listenWave(ctx context.Context, d Device) {
 	for ctx.Err() == nil {
 		err := p.ln.Listen(ctx, d.MAC, wave.CompanyID, "", func(a bluez.Advert) {
+			p.noteHeard()
 			if a.RSSI == 0 {
 				return
 			}

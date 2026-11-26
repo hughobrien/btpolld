@@ -31,15 +31,15 @@ import (
 
 var version = "dev"
 
-// exitScanDead is the exit status for poll.ErrScanDead; the systemd unit
-// restarts bluetoothd on it.
-const exitScanDead = 3
+// exitRestartBluez is the exit status for poll.ErrScanDead and
+// poll.ErrBluezStuck; the systemd unit restarts bluetoothd on it.
+const exitRestartBluez = 3
 
 func main() {
 	if err := run(os.Args[1:], os.Getenv); err != nil {
 		fmt.Fprintln(os.Stderr, "btpolld:", err)
-		if errors.Is(err, poll.ErrScanDead) {
-			os.Exit(exitScanDead)
+		if errors.Is(err, poll.ErrScanDead) || errors.Is(err, poll.ErrBluezStuck) {
+			os.Exit(exitRestartBluez)
 		}
 		os.Exit(1)
 	}

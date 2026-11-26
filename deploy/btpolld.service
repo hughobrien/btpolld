@@ -17,10 +17,17 @@ User=btpolld
 ExecStart=/usr/local/bin/btpolld --config /etc/btpolld.toml
 Restart=on-failure
 RestartSec=30s
-# Exit status 3: the scan is dead (no device heard for 3 minutes). The
-# controller stopped scanning while bluetoothd still believes it is scanning,
-# and only restarting bluetoothd clears that; "+" runs this as root.
-ExecStopPost=+/bin/sh -c 'if [ "$$EXIT_STATUS" = 3 ]; then systemctl --no-block restart bluetooth.service; fi'
+# Exit status 3: bluetoothd is stuck, and only restarting it clears that.
+# Either the scan is dead (no device heard for 3 minutes: the controller
+# stopped scanning while bluetoothd believes it is scanning), or bluetoothd
+# left two reads in a row unanswered. bluetoothd is restarted at most once per
+# 30 minutes, so a device that is really gone cannot keep restarting it; "+"
+# runs this as root.
+ExecStopPost=+/bin/sh -c 'test "$$EXIT_STATUS" = 3 || exit 0; \
+  up=$$(systemctl show -P ActiveEnterTimestampMonotonic bluetooth.service); \
+  age=$$(( $$(cut -d. -f1 /proc/uptime) - up / 1000000 )); \
+  if [ "$$age" -ge 1800 ]; then echo "restarting bluetoothd"; systemctl --no-block restart bluetooth.service; \
+  else echo "bluetoothd restarted $${age}s ago; not again yet"; fi'
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

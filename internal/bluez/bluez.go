@@ -43,6 +43,12 @@ func Dial() (*Client, error) {
 // Close releases the bus connection.
 func (c *Client) Close() error { return c.conn.Close() }
 
+// ErrUnresponsive marks a Read whose first call to bluetoothd, listing its
+// objects, took the whole timeout. That call involves no device (busctl gets
+// it back in about 2 s on a Pi Zero W), so it means bluetoothd is stuck, not
+// that the device is away.
+var ErrUnresponsive = errors.New("bluetoothd did not answer")
+
 func (c *Client) managed(ctx context.Context) (objects, error) {
 	var o objects
 	err := c.conn.Object(service, "/").CallWithContext(ctx, objManager+".GetManagedObjects", 0).Store(&o)
@@ -55,6 +61,9 @@ func (c *Client) managed(ctx context.Context) (objects, error) {
 // from the device in dBm, or zero if it has none.
 func (c *Client) Read(ctx context.Context, mac, uuid string) (val []byte, rssi int16, err error) {
 	objs, err := c.managed(ctx)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, 0, fmt.Errorf("list bluez objects: %w: %w", ErrUnresponsive, err)
+	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("list bluez objects: %w", err)
 	}

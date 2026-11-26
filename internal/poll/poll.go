@@ -74,6 +74,16 @@ type Config struct {
 // when btpolld exits with this error).
 var ErrScanDead = errors.New("scan dead: nothing heard")
 
+// ErrBluezStuck is what Run returns when bluetoothd has not answered
+// (bluez.ErrUnresponsive) stuckAfter Wave Plus reads in a row. Seen on a Pi
+// Zero W while advertisements still arrived; restarting bluetoothd cures it,
+// as for ErrScanDead.
+var ErrBluezStuck = errors.New("bluetoothd stuck: not answering")
+
+// stuckAfter is how many reads in a row bluetoothd must leave unanswered
+// before the run ends with ErrBluezStuck.
+const stuckAfter = 2
+
 // Poller polls and listens.
 type Poller struct {
 	cfg   Config
@@ -91,6 +101,9 @@ type Poller struct {
 	last    map[string]*advert // what was last recorded, by thermometer name
 	waveSig map[string]*advert // newest advertisement of each Wave Plus, by name; only rssi and at are set
 	alive   time.Time          // when anything listened to was last heard, or Run started
+
+	stop  context.CancelCauseFunc // ends Run with a cause
+	stuck int                     // reads in a row bluetoothd did not answer; under readMu
 }
 
 // waveSigFresh is how recent an advertisement must be for its signal
@@ -132,7 +145,7 @@ func New(cfg Config, rd Reader, ln Listener, sink Sink, log *slog.Logger) *Polle
 		return ds
 	}
 	cfg.Waves, cfg.Thermometers = name(cfg.Waves), name(cfg.Thermometers)
-	return &Poller{cfg: cfg, rd: rd, ln: ln, sink: sink, log: log, now: time.Now, sleep: sleepCtx, heard: map[string]*advert{}, last: map[string]*advert{}, waveSig: map[string]*advert{}}
+	return &Poller{cfg: cfg, rd: rd, ln: ln, sink: sink, log: log, now: time.Now, sleep: sleepCtx, heard: map[string]*advert{}, last: map[string]*advert{}, waveSig: map[string]*advert{}, stop: func(error) {}}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) {
@@ -144,11 +157,12 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 	}
 }
 
-// Run polls and listens until ctx ends or the scan is dead (ErrScanDead),
-// then flushes what is queued once more.
+// Run polls and listens until ctx ends, the scan is dead (ErrScanDead) or
+// bluetoothd is stuck (ErrBluezStuck), then flushes what is queued once more.
 func (p *Poller) Run(ctx context.Context) error {
 	ctx, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
+	p.stop = stop
 	p.noteHeard()
 	var wg sync.WaitGroup
 	if len(p.cfg.Thermometers) > 0 {
@@ -167,7 +181,7 @@ func (p *Poller) Run(ctx context.Context) error {
 	fctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	p.flush(fctx)
-	if err := context.Cause(ctx); errors.Is(err, ErrScanDead) {
+	if err := context.Cause(ctx); errors.Is(err, ErrScanDead) || errors.Is(err, ErrBluezStuck) {
 		return err
 	}
 	return nil
@@ -260,6 +274,9 @@ func (p *Poller) pollWave(ctx context.Context, d Device) {
 			break
 		}
 		p.log.Warn("read failed", "device", d.Name, "attempt", attempt, "err", err)
+		if p.noteStuck(err) {
+			return
+		}
 		if attempt < p.cfg.Attempts {
 			p.sleep(ctx, p.cfg.RetryDelay)
 			if ctx.Err() != nil {
@@ -270,8 +287,27 @@ func (p *Poller) pollWave(ctx context.Context, d Device) {
 	if err != nil {
 		return
 	}
+	p.stuck = 0
 	p.sink.Add(p.series(d, p.now(), metric.Rename(r.Metrics(p.waveRSSI(d, rssi)), wave.Prefix, d.Prefix))...)
 	p.log.Info("read", "device", d.Name)
+}
+
+// noteStuck counts reads in a row that bluetoothd left unanswered and, at
+// stuckAfter, ends the run with ErrBluezStuck and reports true. Any other
+// failure (the device away, a failed connection) starts the count again.
+// Call it with readMu held.
+func (p *Poller) noteStuck(err error) bool {
+	if !errors.Is(err, bluez.ErrUnresponsive) {
+		p.stuck = 0
+		return false
+	}
+	p.stuck++
+	if p.stuck < stuckAfter {
+		return false
+	}
+	p.log.Error("bluetoothd stuck: not answering", "reads", p.stuck)
+	p.stop(ErrBluezStuck)
+	return true
 }
 
 func (p *Poller) readWave(ctx context.Context, d Device) (wave.Reading, int16, error) {

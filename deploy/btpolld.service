@@ -17,6 +17,10 @@ User=btpolld
 ExecStart=/usr/local/bin/btpolld --config /etc/btpolld.toml
 Restart=on-failure
 RestartSec=30s
+# Restart every 3 hours: a stuck BlueZ session (D-Bus call timed out, nothing
+# heard afterwards) never recovered on its own. Expiry counts as a failure,
+# so Restart=on-failure brings it back.
+RuntimeMaxSec=3h
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

@@ -410,12 +410,12 @@ func TestBatteryOnlyWhenAdvertCarriesIt(t *testing.T) {
 	}
 }
 
-func TestNoSignalNoRSSISample(t *testing.T) {
+func TestSignalForwardedAsIs(t *testing.T) {
 	s := &sink{}
 	p := newPoller(nil, nil, s, Config{Thermometers: probe})
 	p.hear(probe[0], mkAdvert(t, "aabbccddeeff1b0203962600", 0))
-	if _, has := s.values("probe")["switchbot_rssi_dbm"]; has {
-		t.Error("a zero signal was pushed")
+	if v, has := s.values("probe")["switchbot_rssi_dbm"]; !has || v != 0 {
+		t.Error("the signal was not forwarded as it came")
 	}
 }
 

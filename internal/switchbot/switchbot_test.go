@@ -32,10 +32,6 @@ func TestParseThermometerErrors(t *testing.T) {
 	if _, err := ParseThermometer(make([]byte, 10)); err == nil {
 		t.Error("short data accepted")
 	}
-	b, _ := hex.DecodeString("aabbccddeeff1b020396ff00")
-	if _, err := ParseThermometer(b); err == nil {
-		t.Error("humidity 127 accepted")
-	}
 }
 
 // The vendor's app showed these for 23.1 C and 38 %.

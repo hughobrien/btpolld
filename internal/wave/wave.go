@@ -50,9 +50,6 @@ func Parse(b []byte) (Reading, error) {
 	if b[0] != 1 {
 		return Reading{}, fmt.Errorf("wave plus reading: unknown version %d", b[0])
 	}
-	if b[1] > 200 { // half percent
-		return Reading{}, fmt.Errorf("wave plus reading: humidity byte %d out of range", b[1])
-	}
 	u := func(i int) uint16 { return binary.LittleEndian.Uint16(b[4+2*i:]) }
 	r := Reading{
 		Humidity:    float64(b[1]) / 2,
@@ -92,11 +89,7 @@ func (r Reading) Metrics() []metric.Metric {
 	return m
 }
 
-// SignalMetrics is the series an advertisement's signal strength (dBm) becomes:
-// none while BlueZ has no strength to report (zero).
+// SignalMetrics is the series an advertisement's signal strength (dBm) becomes.
 func SignalMetrics(rssi int16) []metric.Metric {
-	if rssi == 0 {
-		return nil
-	}
 	return []metric.Metric{{Name: "airthings_rssi_dbm", Value: float64(rssi)}}
 }

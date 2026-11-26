@@ -914,6 +914,54 @@
       "transparent": true
     },
     {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Probe signal strength",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dBm",
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "always"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "switchbot_rssi_dbm",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "transparent": true
+    },
+    {
       "id": 25,
       "type": "timeseries",
       "title": "Probe temperature",
@@ -925,7 +973,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 46
       },
       "fieldConfig": {
         "defaults": {
@@ -973,7 +1021,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 40
+        "y": 46
       },
       "fieldConfig": {
         "defaults": {
@@ -1021,7 +1069,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 48
+        "y": 54
       },
       "fieldConfig": {
         "defaults": {
@@ -1069,7 +1117,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 48
+        "y": 54
       },
       "fieldConfig": {
         "defaults": {

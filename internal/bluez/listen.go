@@ -51,6 +51,12 @@ func (a *Advert) apply(company uint16, serviceUUID string, changed map[string]db
 	return touched && a.Data != nil
 }
 
+// seed loads what BlueZ already knows of the device at dev from a listing of
+// its objects.
+func (a *Advert) seed(objs objects, dev dbus.ObjectPath, company uint16, serviceUUID string) {
+	a.apply(company, serviceUUID, objs[dev][deviceIf])
+}
+
 // Listen scans passively, never connecting, and calls fn each time the device
 // at mac advertises (BlueZ reports a changed RSSI or manufacturer data), with
 // the manufacturer data of company and the service data under serviceUUID.
@@ -92,7 +98,11 @@ func (c *Client) Listen(ctx context.Context, mac string, company uint16, service
 		_ = a.CallWithContext(sctx, adapterIf+".StopDiscovery", 0).Err
 	}()
 
+	// BlueZ sends manufacturer data only when it changes, so a steady reading
+	// (a thermometer in a fridge) would never be heard again after a restart:
+	// start from what it already holds for the device.
 	var cur Advert
+	cur.seed(objs, dev, company, serviceUUID)
 	for {
 		select {
 		case <-ctx.Done():

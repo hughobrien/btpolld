@@ -3,8 +3,6 @@ package wave
 import (
 	"encoding/hex"
 	"testing"
-
-	"github.com/hughobrien/btpolld/internal/metric"
 )
 
 func TestParse(t *testing.T) {
@@ -41,19 +39,23 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
-func TestMetricsRSSI(t *testing.T) {
-	has := func(ms []metric.Metric) bool {
-		for _, m := range ms {
-			if m.Name == "airthings_rssi_dbm" {
-				return true
-			}
+func TestSignalMetrics(t *testing.T) {
+	if ms := SignalMetrics(-64); len(ms) != 1 || ms[0].Name != "airthings_rssi_dbm" || ms[0].Value != -64 {
+		t.Errorf("signal: %v", ms)
+	}
+	if ms := SignalMetrics(0); len(ms) != 0 {
+		t.Errorf("a zero signal was reported: %v", ms)
+	}
+	for _, m := range (Reading{}).Metrics() {
+		if m.Name == "airthings_rssi_dbm" {
+			t.Error("a reading carries no signal strength")
 		}
-		return false
 	}
-	if !has(Reading{}.Metrics(-64)) {
-		t.Error("rssi series missing")
-	}
-	if has(Reading{}.Metrics(0)) {
-		t.Error("rssi series present without a signal reading")
+}
+
+func TestHumidityOutOfRange(t *testing.T) {
+	b, _ := hex.DecodeString("01c94d7000000000880751c146032e0000001614") // 0xc9 = 201 half percent
+	if _, err := Parse(b); err == nil {
+		t.Error("humidity above 100 accepted")
 	}
 }

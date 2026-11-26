@@ -18,7 +18,10 @@ func TestDashboardUsesPushedMetrics(t *testing.T) {
 	one := uint16(1)
 	bat := uint8(1)
 	pushed := map[string]bool{}
-	for _, m := range (wave.Reading{RadonShort: &one, RadonLong: &one}).Metrics(-60) {
+	for _, m := range (wave.Reading{RadonShort: &one, RadonLong: &one}).Metrics() {
+		pushed[m.Name] = true
+	}
+	for _, m := range wave.SignalMetrics(-60) {
 		pushed[m.Name] = true
 	}
 	for _, m := range (switchbot.Reading{Temperature: 20, Humidity: 50}).Metrics(&bat, -70) {

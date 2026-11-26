@@ -3,7 +3,6 @@
 package switchbot
 
 import (
-	"errors"
 	"fmt"
 	"math"
 
@@ -42,11 +41,7 @@ func ParseThermometer(b []byte) (Reading, error) {
 	if b[9]&0x80 == 0 {
 		t = -t
 	}
-	h := float64(b[10] & 0x7f)
-	if h > 100 {
-		return Reading{}, errors.New("humidity out of range")
-	}
-	return Reading{Temperature: t, Humidity: h}, nil
+	return Reading{Temperature: t, Humidity: float64(b[10] & 0x7f)}, nil
 }
 
 // The Magnus constants (valid from about -45 to 60 degrees Celsius).
@@ -102,9 +97,7 @@ func (r Reading) Metrics(battery *uint8, rssi int16) []metric.Metric {
 		{Name: "switchbot_humidity_percent", Value: r.Humidity},
 		{Name: "switchbot_absolute_humidity_g_m3", Value: r.AbsoluteHumidity()},
 		{Name: "switchbot_vapor_pressure_deficit_kpa", Value: r.VaporPressureDeficit()},
-	}
-	if rssi != 0 { // zero is BlueZ having no strength to report
-		m = append(m, metric.Metric{Name: "switchbot_rssi_dbm", Value: float64(rssi)})
+		{Name: "switchbot_rssi_dbm", Value: float64(rssi)},
 	}
 	if d := r.DewPoint(); !math.IsNaN(d) {
 		m = append(m, metric.Metric{Name: "switchbot_dew_point_celsius", Value: d})

@@ -17,10 +17,10 @@ User=btpolld
 ExecStart=/usr/local/bin/btpolld --config /etc/btpolld.toml
 Restart=on-failure
 RestartSec=30s
-# Restart every 3 hours: a stuck BlueZ session (D-Bus call timed out, nothing
-# heard afterwards) never recovered on its own. Expiry counts as a failure,
-# so Restart=on-failure brings it back.
-RuntimeMaxSec=3h
+# Exit status 3: the scan is dead (no device heard for 3 minutes). The
+# controller stopped scanning while bluetoothd still believes it is scanning,
+# and only restarting bluetoothd clears that; "+" runs this as root.
+ExecStopPost=+/bin/sh -c 'if [ "$$EXIT_STATUS" = 3 ]; then systemctl --no-block restart bluetooth.service; fi'
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

@@ -365,3 +365,66 @@ func TestPrefixRenamesSeries(t *testing.T) {
 		t.Errorf("renamed thermometer series missing: %v", s.values("probe"))
 	}
 }
+
+// quietListener hears nothing until ctx ends, like a scan that has died.
+type quietListener struct{}
+
+func (quietListener) Listen(ctx context.Context, _ string, _ uint16, _ string, _ func(bluez.Advert)) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// tickingListener hears the same advertisement every few milliseconds.
+type tickingListener struct{ a bluez.Advert }
+
+func (l tickingListener) Listen(ctx context.Context, _ string, _ uint16, _ string, fn func(bluez.Advert)) error {
+	t := time.NewTicker(2 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			fn(l.a)
+		}
+	}
+}
+
+func runFor(t *testing.T, p *Poller, d time.Duration) (error, bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- p.Run(ctx) }()
+	select {
+	case err := <-done:
+		return err, ctx.Err() == nil // ended before the deadline
+	case <-time.After(d + 2*time.Second):
+		t.Fatal("Run did not return")
+		return nil, false
+	}
+}
+
+func TestRunEndsWhenNothingHeard(t *testing.T) {
+	p := newPoller(nil, quietListener{}, &sink{}, Config{Thermometers: probe, DeadAfter: 30 * time.Millisecond})
+	err, early := runFor(t, p, 2*time.Second)
+	if !errors.Is(err, ErrScanDead) || !early {
+		t.Fatalf("err %v, ended early %v; want ErrScanDead well before the deadline", err, early)
+	}
+}
+
+func TestRunKeepsGoingWhileHeard(t *testing.T) {
+	ln := tickingListener{mkAdvert(t, "aabbccddeeff1b0203962600", -80)}
+	p := newPoller(nil, ln, &sink{}, Config{Thermometers: probe, DeadAfter: 30 * time.Millisecond})
+	if err, early := runFor(t, p, 200*time.Millisecond); err != nil || early {
+		t.Fatalf("err %v, ended early %v; want a clean end at the deadline", err, early)
+	}
+}
+
+func TestNoWatchdogWithoutBroadcastDevices(t *testing.T) {
+	rd := &fakeReader{script: []func() ([]byte, error){ok(goodRaw)}}
+	p := newPoller(rd, quietListener{}, &sink{}, Config{Waves: den, DeadAfter: 30 * time.Millisecond})
+	if err, early := runFor(t, p, 200*time.Millisecond); err != nil || early {
+		t.Fatalf("err %v, ended early %v; a Wave Plus alone must not arm the watchdog", err, early)
+	}
+}

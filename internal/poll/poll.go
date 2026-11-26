@@ -3,10 +3,10 @@
 //
 // An Airthings Wave Plus is polled: every interval the poller connects, reads
 // its current values and disconnects. A SwitchBot thermometer is listened to:
-// it broadcasts its values, so every advertisement that differs from the last
-// recorded one is recorded at the time it was heard, and every interval
-// the newest advertisement is recorded again if nothing else was, so that a
-// steady reading is a line and not a gap.
+// it broadcasts its values, and every advertisement heard becomes samples at
+// the time it was heard. The poller keeps no memory of what it sent (no
+// change detection, no repeating, no staleness limit): it forwards what it
+// hears and leaves the judging to the server.
 package poll
 
 import (
@@ -59,7 +59,7 @@ type Config struct {
 	Thermometers []Device
 
 	WaveInterval   time.Duration // default for how often to read a Wave Plus (15m)
-	ThermoInterval time.Duration // default for how often to push, and to repeat a steady reading of, a thermometer (1m); one unheard for three of these is down
+	ThermoInterval time.Duration // default for how often to push what a thermometer's advertisements have become (1m)
 	Attempts       int           // reads tried per Wave Plus per poll (3)
 	Timeout        time.Duration // bound on one read, scanning and connecting included (45s)
 	RetryDelay     time.Duration // pause between attempts, and before listening again (5s)
@@ -97,26 +97,10 @@ type Poller struct {
 	readMu  sync.Mutex // one read at a time: the adapter connects to one device
 	flushMu sync.Mutex // one flush at a time
 	mu      sync.Mutex
-	heard   map[string]*advert // newest advertisement, by thermometer name
-	last    map[string]*advert // what was last recorded, by thermometer name
-	waveSig map[string]*advert // newest advertisement of each Wave Plus, by name; only rssi and at are set
-	alive   time.Time          // when anything listened to was last heard, or Run started
+	alive   time.Time // when anything listened to was last heard, or Run started
 
 	stop  context.CancelCauseFunc // ends Run with a cause
 	stuck int                     // reads in a row bluetoothd did not answer; under readMu
-}
-
-// waveSigFresh is how recent an advertisement must be for its signal
-// strength to stand for a Wave Plus read: a read does not scan, and BlueZ
-// forgets a device's RSSI soon after it stops advertising.
-const waveSigFresh = 10 * time.Minute
-
-// advert is what the newest advertisement of a thermometer said.
-type advert struct {
-	at      time.Time
-	reading switchbot.Reading
-	battery *uint8
-	rssi    int16
 }
 
 // New returns a Poller; call Run to start it.
@@ -145,7 +129,7 @@ func New(cfg Config, rd Reader, ln Listener, sink Sink, log *slog.Logger) *Polle
 		return ds
 	}
 	cfg.Waves, cfg.Thermometers = name(cfg.Waves), name(cfg.Thermometers)
-	return &Poller{cfg: cfg, rd: rd, ln: ln, sink: sink, log: log, now: time.Now, sleep: sleepCtx, heard: map[string]*advert{}, last: map[string]*advert{}, waveSig: map[string]*advert{}, stop: func(error) {}}
+	return &Poller{cfg: cfg, rd: rd, ln: ln, sink: sink, log: log, now: time.Now, sleep: sleepCtx, stop: func(error) {}}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) {
@@ -264,12 +248,11 @@ func (p *Poller) pollWave(ctx context.Context, d Device) {
 	p.readMu.Lock()
 	defer p.readMu.Unlock()
 	var (
-		r    wave.Reading
-		rssi int16
-		err  error
+		r   wave.Reading
+		err error
 	)
 	for attempt := 1; attempt <= p.cfg.Attempts; attempt++ {
-		r, rssi, err = p.readWave(ctx, d)
+		r, err = p.readWave(ctx, d)
 		if err == nil {
 			break
 		}
@@ -288,7 +271,7 @@ func (p *Poller) pollWave(ctx context.Context, d Device) {
 		return
 	}
 	p.stuck = 0
-	p.sink.Add(p.series(d, p.now(), metric.Rename(r.Metrics(p.waveRSSI(d, rssi)), wave.Prefix, d.Prefix))...)
+	p.add(d, wave.Prefix, p.now(), r.Metrics())
 	p.log.Info("read", "device", d.Name)
 }
 
@@ -310,18 +293,18 @@ func (p *Poller) noteStuck(err error) bool {
 	return true
 }
 
-func (p *Poller) readWave(ctx context.Context, d Device) (wave.Reading, int16, error) {
+func (p *Poller) readWave(ctx context.Context, d Device) (wave.Reading, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.Timeout)
 	defer cancel()
-	raw, rssi, err := p.rd.Read(ctx, d.MAC, wave.CurrentValues)
+	raw, _, err := p.rd.Read(ctx, d.MAC, wave.CurrentValues)
 	if err != nil {
-		return wave.Reading{}, 0, err
+		return wave.Reading{}, err
 	}
 	r, err := wave.Parse(raw)
 	if err != nil {
-		return wave.Reading{}, 0, fmt.Errorf("decode: %w", err)
+		return wave.Reading{}, fmt.Errorf("decode: %w", err)
 	}
-	return r, rssi, nil
+	return r, nil
 }
 
 func (p *Poller) runThermometers(ctx context.Context) {
@@ -339,7 +322,6 @@ func (p *Poller) runThermometers(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					p.repeat(d)
 					p.flush(ctx)
 				}
 			}
@@ -360,17 +342,13 @@ func (p *Poller) listen(ctx context.Context, d Device) {
 }
 
 // listenWave keeps a scan for a Wave Plus going, only to learn its signal
-// strength; the values come from reading it.
+// strength, which every advertisement heard reports; the values come from
+// reading it.
 func (p *Poller) listenWave(ctx context.Context, d Device) {
 	for ctx.Err() == nil {
 		err := p.ln.Listen(ctx, d.MAC, wave.CompanyID, "", func(a bluez.Advert) {
 			p.noteHeard()
-			if a.RSSI == 0 {
-				return
-			}
-			p.mu.Lock()
-			p.waveSig[d.Name] = &advert{at: p.now(), rssi: a.RSSI}
-			p.mu.Unlock()
+			p.add(d, wave.Prefix, p.now(), wave.SignalMetrics(a.RSSI))
 		})
 		if ctx.Err() != nil {
 			return
@@ -380,76 +358,23 @@ func (p *Poller) listenWave(ctx context.Context, d Device) {
 	}
 }
 
-// waveRSSI is the freshest signal strength known for a Wave Plus: what its
-// advertisements said, else what the read itself found (zero for none).
-func (p *Poller) waveRSSI(d Device, fromRead int16) int16 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if a := p.waveSig[d.Name]; a != nil && p.now().Sub(a.at) <= waveSigFresh {
-		return a.rssi
-	}
-	return fromRead
-}
-
-// hear takes an advertisement, and records it if it says something new.
+// hear turns an advertisement into samples stamped with the time it was heard.
 func (p *Poller) hear(d Device, a bluez.Advert) {
 	r, err := switchbot.ParseThermometer(a.Data)
 	if err != nil {
 		p.log.Warn("advertisement not understood", "device", d.Name, "err", err)
 		return
 	}
-	adv := &advert{at: p.now(), reading: r, rssi: a.RSSI}
+	var battery *uint8
 	if b, ok := switchbot.Battery(a.Service); ok {
-		adv.battery = &b
+		battery = &b
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	// The battery rides in only some advertisements: keep the last known.
-	if prev := p.heard[d.Name]; adv.battery == nil && prev != nil {
-		adv.battery = prev.battery
-	}
-	p.heard[d.Name] = adv
-	if last := p.last[d.Name]; last == nil || last.reading != adv.reading || !sameBattery(last.battery, adv.battery) {
-		p.record(d, adv, adv.at)
-	}
+	p.add(d, switchbot.Prefix, p.now(), r.Metrics(battery, a.RSSI))
 }
 
-func sameBattery(a, b *uint8) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
-
-// record queues adv at time at, unless that is not after the last sample
-// (the series would go backwards). The caller holds p.mu.
-func (p *Poller) record(d Device, adv *advert, at time.Time) {
-	if last := p.last[d.Name]; last != nil && !at.After(last.at) {
-		return
-	}
-	p.sink.Add(p.series(d, at, metric.Rename(adv.reading.Metrics(adv.battery, adv.rssi), switchbot.Prefix, d.Prefix))...)
-	rec := *adv
-	rec.at = at
-	p.last[d.Name] = &rec
-}
-
-// repeat records every thermometer's newest advertisement again if nothing
-// was recorded for it in the last interval; one unheard for three intervals
-// is a gap, not a flat line of stale values.
-func (p *Poller) sampleThermometers() {
-	for _, d := range p.cfg.Thermometers {
-		p.repeat(d)
-	}
-}
-
-func (p *Poller) repeat(d Device) {
-	every := p.every(d, p.cfg.ThermoInterval)
-	now := p.now()
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	a := p.heard[d.Name]
-	if a == nil || now.Sub(a.at) > 3*every {
-		p.log.Warn("thermometer not heard", "device", d.Name)
-		return
-	}
-	if last := p.last[d.Name]; last == nil || now.Sub(last.at) >= every {
-		p.record(d, a, now)
-	}
+// add queues ms for d at time t, under the family's prefix (or d's own).
+func (p *Poller) add(d Device, family string, t time.Time, ms []metric.Metric) {
+	p.sink.Add(p.series(d, t, metric.Rename(ms, family, d.Prefix))...)
 }
 
 func (p *Poller) series(d Device, t time.Time, ms []metric.Metric) []promwrite.Series {

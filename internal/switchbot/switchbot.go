@@ -102,7 +102,9 @@ func (r Reading) Metrics(battery *uint8, rssi int16) []metric.Metric {
 		{Name: "switchbot_humidity_percent", Value: r.Humidity},
 		{Name: "switchbot_absolute_humidity_g_m3", Value: r.AbsoluteHumidity()},
 		{Name: "switchbot_vapor_pressure_deficit_kpa", Value: r.VaporPressureDeficit()},
-		{Name: "switchbot_rssi_dbm", Value: float64(rssi)},
+	}
+	if rssi != 0 { // zero is BlueZ having no strength to report
+		m = append(m, metric.Metric{Name: "switchbot_rssi_dbm", Value: float64(rssi)})
 	}
 	if d := r.DewPoint(); !math.IsNaN(d) {
 		m = append(m, metric.Metric{Name: "switchbot_dew_point_celsius", Value: d})

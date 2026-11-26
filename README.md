@@ -14,7 +14,7 @@ they are read.
 | `type` | Device | Section | How |
 |---|---|---|---|
 | `wave-plus` | Airthings Wave Plus | `[poll]` | connect, read the current values, disconnect, every 15 minutes |
-| `switchbot-thermometer` | SwitchBot thermometer | `[broadcast]` | listen for its advertisements (no connection); record each changed reading as heard, and repeat a steady one every minute |
+| `switchbot-thermometer` | SwitchBot thermometer | `[broadcast]` | listen for its advertisements (no connection); forward every advertisement heard as samples, pushed every minute |
 
 A device has to be polled when its advertisements do not carry its values (the
 Wave Plus advertises only its serial number); one that does is listened to,
@@ -89,10 +89,10 @@ interval = "15m"                # default for every device in this section
   # labels = { room = "loft" }  # extra labels on this device's series
 
 # Devices that broadcast their values: we only listen, never connect.
-# A reading is recorded the moment a changed one is heard; `interval` is how
-# often a steady reading is repeated (so it plots as a line, not a gap) and how
-# often what has been recorded is pushed. A device unheard for three intervals
-# is left as a gap.
+# Every advertisement heard becomes samples, stamped with when it was heard,
+# so a steady reading plots as a line and a silent device as a gap. btpolld
+# remembers nothing and filters nothing; `interval` is how often what has been
+# heard is pushed.
 [broadcast]
 interval = "1m"
 

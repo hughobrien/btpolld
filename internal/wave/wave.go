@@ -50,6 +50,9 @@ func Parse(b []byte) (Reading, error) {
 	if b[0] != 1 {
 		return Reading{}, fmt.Errorf("wave plus reading: unknown version %d", b[0])
 	}
+	if b[1] > 200 { // half percent
+		return Reading{}, fmt.Errorf("wave plus reading: humidity byte %d out of range", b[1])
+	}
 	u := func(i int) uint16 { return binary.LittleEndian.Uint16(b[4+2*i:]) }
 	r := Reading{
 		Humidity:    float64(b[1]) / 2,
@@ -71,7 +74,7 @@ func Parse(b []byte) (Reading, error) {
 // Metrics are the series a reading becomes. Radon is left out while the
 // device has no value. The names keep the airthings_ prefix of the dashboards
 // that came before.
-func (r Reading) Metrics(rssi int16) []metric.Metric {
+func (r Reading) Metrics() []metric.Metric {
 	m := []metric.Metric{
 		{Name: "airthings_co2_ppm", Value: float64(r.CO2)},
 		{Name: "airthings_voc_ppb", Value: float64(r.VOC)},
@@ -80,9 +83,6 @@ func (r Reading) Metrics(rssi int16) []metric.Metric {
 		{Name: "airthings_pressure_hpa", Value: r.Pressure},
 		{Name: "airthings_light", Value: float64(r.Light)},
 	}
-	if rssi != 0 {
-		m = append(m, metric.Metric{Name: "airthings_rssi_dbm", Value: float64(rssi)})
-	}
 	if r.RadonShort != nil {
 		m = append(m, metric.Metric{Name: "airthings_radon_short_term_bq_m3", Value: float64(*r.RadonShort)})
 	}
@@ -90,4 +90,13 @@ func (r Reading) Metrics(rssi int16) []metric.Metric {
 		m = append(m, metric.Metric{Name: "airthings_radon_long_term_bq_m3", Value: float64(*r.RadonLong)})
 	}
 	return m
+}
+
+// SignalMetrics is the series an advertisement's signal strength (dBm) becomes:
+// none while BlueZ has no strength to report (zero).
+func SignalMetrics(rssi int16) []metric.Metric {
+	if rssi == 0 {
+		return nil
+	}
+	return []metric.Metric{{Name: "airthings_rssi_dbm", Value: float64(rssi)}}
 }

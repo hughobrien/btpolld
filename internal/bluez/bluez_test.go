@@ -86,3 +86,29 @@ func TestAdvertApplyServiceData(t *testing.T) {
 		t.Errorf("got %+v", a)
 	}
 }
+
+// A steady reading never changes in BlueZ, so Listen must start from what
+// BlueZ already holds, or only RSSI updates arrive and nothing is heard.
+func TestAdvertSeed(t *testing.T) {
+	const svc = "0000fd3d-0000-1000-8000-00805f9b34fb"
+	dev := dbus.ObjectPath("/org/bluez/hci0/dev_00_11_22_33_44_66")
+	objs := objects{dev: {deviceIf: {
+		"RSSI":             dbus.MakeVariant(int16(-84)),
+		"ManufacturerData": dbus.MakeVariant(map[uint16]dbus.Variant{0x0969: dbus.MakeVariant([]byte{1, 2, 3})}),
+		"ServiceData":      dbus.MakeVariant(map[string]dbus.Variant{svc: dbus.MakeVariant([]byte{0x77, 0, 0x64})}),
+	}}}
+	var a Advert
+	a.seed(objs, dev, 0x0969, svc)
+	if len(a.Data) != 3 || len(a.Service) != 3 || a.RSSI != -84 {
+		t.Fatalf("seed: %+v", a)
+	}
+	// Later, an RSSI-only update is now an advert.
+	if !a.apply(0x0969, svc, map[string]dbus.Variant{"RSSI": dbus.MakeVariant(int16(-88))}) {
+		t.Error("RSSI update after seeding should be heard")
+	}
+	var b Advert
+	b.seed(objs, "/org/bluez/hci0/dev_other", 0x0969, svc)
+	if b.Data != nil {
+		t.Error("unknown device seeded data")
+	}
+}

@@ -675,7 +675,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "time() - timestamp({__name__=~\"airthings_co2_ppm|switchbot_temperature_celsius\"})",
+          "expr": "time() - max by (device) (timestamp({__name__=~\".+_humidity_percent\"}))",
           "legendFormat": "{{device}}"
         }
       ],

@@ -35,7 +35,7 @@
             let
               drv = pkgs.writeShellApplication {
                 inherit name text;
-                runtimeInputs = [ pkgs.go ];
+                runtimeInputs = [ pkgs.go_1_27 ];
                 derivationArgs.meta = {
                   inherit description;
                   mainProgram = name;
@@ -67,7 +67,7 @@
         {
           default = pkgs.mkShell {
             packages = [
-              pkgs.go
+              pkgs.go_1_27
               pkgs.clang
             ]
             ++ ciLib.devShellPackages;
@@ -84,7 +84,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
           ciLib = ci.lib.forSystem system;
           lint = ciLib.lint { inherit self; };
-          tests = pkgs.buildGoModule {
+          tests = pkgs.buildGo127Module {
             pname = "btpolld-tests";
             version = "0";
             src = ./.;

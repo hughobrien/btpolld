@@ -20,7 +20,7 @@ A device has to be polled when its advertisements do not carry its values (the
 Wave Plus advertises only its serial number); one that does is listened to,
 which costs it nothing.
 
-```
+```text
 airthings_co2_ppm airthings_voc_ppb airthings_temperature_celsius
 airthings_humidity_percent airthings_pressure_hpa airthings_light
 airthings_radon_short_term_bq_m3 airthings_radon_long_term_bq_m3   (absent until the device has one)
@@ -44,7 +44,7 @@ that cannot be read or heard simply has no sample: a gap, not a flat line.
 
 ## Running
 
-```
+```sh
 btpolld --config /etc/btpolld.toml
 ```
 
@@ -164,7 +164,7 @@ SystemCallFilter=~@privileged
 WantedBy=multi-user.target
 ```
 
-`just build-pi` makes a static binary for a Raspberry Pi Zero (armv6).
+`nix run .#build-pi` makes a static binary for a Raspberry Pi Zero (armv6).
 `grafana/btpolld.json` is an importable dashboard (Wave Plus only so far).
 
 ## Example: a Pi as a remote collector
@@ -174,7 +174,7 @@ not within that range of the sensors, or is not on the same network at all
 (a server in the cloud). So run btpolld on something small that is near them
 (a Raspberry Pi Zero W is enough) and let it push over the network:
 
-```
+```text
 sensors ~~BLE~~> Pi running btpolld ---remote write---> VictoriaMetrics
                                                         (home server, or in the cloud)
 ```
@@ -190,7 +190,7 @@ reports); the Pi heard them at -64 and -74 dBm, about 20 dB better.
   (a reverse proxy with basic auth), and give the Pi the credentials in the URL:
   `push = ["https://user:password@metrics.example.com"]`. Keep
   `/etc/btpolld.toml` readable by btpolld alone.
-- Build for the Pi with `just build-pi` (armv6, static, so one file to copy),
+- Build for the Pi with `nix run .#build-pi` (armv6, static, so one file to copy),
   install the unit from `deploy/`, and `rfkill unblock bluetooth` if Raspberry
   Pi OS has it blocked.
 

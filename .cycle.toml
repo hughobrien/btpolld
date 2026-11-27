@@ -1,0 +1,31 @@
+[repo]
+name = "btpolld"
+forge = "https://forgejo.wg"
+owner = "hughobrien"
+
+[test]
+fast_stages = [
+  [
+    "nix develop -c go vet ./...",
+    "nix develop -c sh -c 'drift=$(gofmt -l .); [ -z \"$drift\" ] || { echo \"gofmt drift: $drift\"; exit 1; }'",
+    "nix develop -c go test ./...",
+  ],
+]
+
+slow_stages = [
+  [
+    "nix develop -c go vet ./...",
+    "nix develop -c sh -c 'drift=$(gofmt -l .); [ -z \"$drift\" ] || { echo \"gofmt drift: $drift\"; exit 1; }'",
+    "nix develop -c go test -race ./...",
+    "nix develop -c nixfmt --check flake.nix",
+    "nix develop -c statix check .",
+    "nix develop -c deadnix --fail .",
+    "nix develop -c sh -c 'actionlint .forgejo/workflows/*.yml'",
+    "nix develop -c rumdl check --disable MD013 --no-cache .",
+  ],
+]
+
+[ci]
+required_contexts = ["ci / gate (pull_request)"]
+main_workflows = ["ci.yml"]
+tofu_plan = "none"

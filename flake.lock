@@ -1,24 +1,47 @@
 {
   "nodes": {
+    "ci": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1795775779,
+        "narHash": "sha256-9yi8NdiB/OKiRHVmoInROtMu2gCIhB0lu0T7hVSdVME=",
+        "ref": "main",
+        "rev": "ceaf51e77d6f8346150ad9c8f300afac2e868b91",
+        "revCount": 18,
+        "type": "git",
+        "url": "https://forgejo.wg/hughobrien/ci.git"
+      },
+      "original": {
+        "ref": "main",
+        "type": "git",
+        "url": "https://forgejo.wg/hughobrien/ci.git"
+      }
+    },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1795234589,
-        "narHash": "sha256-f/VVvxf5RsQgWVhUtefoca5ktVg0DA2bnkMOcmSnozo=",
+        "lastModified": 1793726008,
+        "narHash": "sha256-jQp1wKvbwWdLBASTXkSi/VYmDJ5AbBi1WvcMt9HWJC8=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "2786a2a72088ecf32aea5b3ec52099e6a7cff78f",
+        "rev": "1d060086d60cb76a40cf37109f979d88a5bd6396",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
-        "ref": "nixos-unstable",
         "repo": "nixpkgs",
+        "rev": "1d060086d60cb76a40cf37109f979d88a5bd6396",
         "type": "github"
       }
     },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "ci": "ci",
+        "nixpkgs": [
+          "ci",
+          "nixpkgs"
+        ]
       }
     }
   },

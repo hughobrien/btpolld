@@ -1,3 +1,7 @@
 /btpolld
 /btpolld-arm
 coverage.out
+result
+result-*
+.worktrees/
+.direnv/

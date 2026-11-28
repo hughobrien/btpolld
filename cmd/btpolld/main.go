@@ -15,14 +15,12 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
 	"runtime/debug"
 	"syscall"
-	"time"
 
 	"github.com/hughobrien/btpolld/internal/bluez"
 	"github.com/hughobrien/btpolld/internal/config"
@@ -79,7 +77,7 @@ func run(args []string, getenv func(string) string) error {
 
 	p := poll.New(poll.Config{Job: cfg.Job, Waves: cfg.Waves, Thermometers: cfg.Thermometers,
 		WaveInterval: cfg.WaveInterval, ThermoInterval: cfg.ThermoInterval},
-		bt, bt, promwrite.NewPushers(targets, pushClient()), log)
+		bt, bt, promwrite.NewPushers(targets, nil), log)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	log.Info("started", "version", versionString(), "polled", len(cfg.Waves), "broadcasting", len(cfg.Thermometers), "targets", len(targets))
@@ -142,11 +140,4 @@ func targets(urls []string) (promwrite.Targets, error) {
 		ts = append(ts, promwrite.Target{Name: name, URL: s})
 	}
 	return ts, nil
-}
-
-// pushClient opens a fresh connection for each push. Pushes are a minute or
-// more apart, about when VictoriaMetrics closes an idle connection, so a kept
-// one is often found dead (EOF) just as it is reused.
-func pushClient() *http.Client {
-	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
 }

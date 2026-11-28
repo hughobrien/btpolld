@@ -49,3 +49,5 @@ nix run .#build                    # build ./btpolld for the host platform
 nix run .#build-pi                 # build static ./btpolld-arm for Raspberry Pi Zero (armv6)
 nix develop -c go test -race ./... # run Go race tests directly in devShell
 ```
+
+Shared Forge rules (`cycle`, Nix, CI) live in the global `forge` skill (`ci/.claude/skills/forge/SKILL.md`).

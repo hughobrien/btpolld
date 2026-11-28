@@ -43,8 +43,9 @@ BlueZ sends a property only when it changes, so `bluez.Listen` first seeds itsel
 ## Commands
 
 ```sh
+# Use cycle by default for development rather than editing main directly (see [cycle usage](https://forgejo.wg/hughobrien/cycle/src/branch/main/EXAMPLES.md)):
 cycle test-fast                    # gofmt, go vet, go test, nixfmt, statix, deadnix, actionlint, rumdl
-cycle test-slow                    # adds go test -race
+cycle test-all                     # full suite (adds go test -race)
 nix run .#build                    # build ./btpolld for the host platform
 nix run .#build-pi                 # build static ./btpolld-arm for Raspberry Pi Zero (armv6)
 nix develop -c go test -race ./... # run Go race tests directly in devShell

@@ -69,6 +69,7 @@ func TestInvalid(t *testing.T) {
 		"no push":           dev("poll", "wave-plus", "a", "aa:bb:cc:00:11:01"),
 		"no devices":        push,
 		"bad push scheme":   `push = ["ftp://a"]` + "\n" + dev("poll", "wave-plus", "a", "aa:bb:cc:00:11:01"),
+		"empty host":        `push = ["http://:8428"]` + "\n" + dev("poll", "wave-plus", "a", "aa:bb:cc:00:11:01"),
 		"wave in broadcast": push + dev("broadcast", "wave-plus", "a", "aa:bb:cc:00:11:01"),
 		"probe in poll":     push + dev("poll", "switchbot-thermometer", "a", "aa:bb:cc:00:11:01"),
 		"bad mac":           push + dev("poll", "wave-plus", "a", "nonsense"),

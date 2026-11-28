@@ -22,16 +22,15 @@ type fakeReader struct {
 	mu     sync.Mutex
 	calls  []string
 	script []func() ([]byte, error)
-	rssi   int16
 }
 
-func (f *fakeReader) Read(_ context.Context, mac, uuid string) ([]byte, int16, error) {
+func (f *fakeReader) Read(_ context.Context, mac, uuid string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, mac+" "+uuid)
 	i := min(len(f.calls)-1, len(f.script)-1)
 	b, err := f.script[i]()
-	return b, f.rssi, err
+	return b, err
 }
 
 func ok(h string) func() ([]byte, error) {
@@ -42,9 +41,10 @@ func fail() ([]byte, error) { return nil, errors.New("not available") }
 
 // sink records what is added and counts flushes.
 type sink struct {
-	mu      sync.Mutex
-	series  []promwrite.Series
-	flushes int
+	mu        sync.Mutex
+	series    []promwrite.Series
+	flushes   int
+	flushErrs []error
 }
 
 func (s *sink) Add(series ...promwrite.Series) {
@@ -53,10 +53,11 @@ func (s *sink) Add(series ...promwrite.Series) {
 	s.series = append(s.series, series...)
 }
 
-func (s *sink) Flush(context.Context) error {
+func (s *sink) Flush(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.flushes++
+	s.flushErrs = append(s.flushErrs, ctx.Err())
 	return nil
 }
 
@@ -343,13 +344,24 @@ func unresponsive() ([]byte, error) {
 
 func TestRunEndsWhenBluezStuck(t *testing.T) {
 	rd := &fakeReader{script: []func() ([]byte, error){unresponsive}}
-	p := newPoller(rd, quietListener{}, &sink{}, Config{Waves: den})
+	s := &sink{}
+	p := newPoller(rd, quietListener{}, s, Config{Waves: den})
 	err, early := runFor(t, p, 2*time.Second)
 	if !errors.Is(err, ErrBluezStuck) || !early {
 		t.Fatalf("err %v, ended early %v; want ErrBluezStuck well before the deadline", err, early)
 	}
 	if n := len(rd.calls); n != stuckAfter {
 		t.Errorf("%d reads, want %d", n, stuckAfter)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.flushErrs) == 0 {
+		t.Error("expected at least one flush on exit")
+	}
+	for i, ferr := range s.flushErrs {
+		if ferr != nil {
+			t.Errorf("flush %d called with cancelled context: %v", i, ferr)
+		}
 	}
 }
 

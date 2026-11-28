@@ -43,8 +43,8 @@ BlueZ sends a property only when it changes, so `bluez.Listen` first seeds itsel
 ## Commands
 
 ```sh
-cycle test-fast                    # go vet, gofmt, go test ./...
-cycle test-slow                    # adds go test -race, nixfmt, statix, deadnix, actionlint, rumdl
+cycle test-fast                    # gofmt, go vet, go test, nixfmt, statix, deadnix, actionlint, rumdl
+cycle test-slow                    # adds go test -race
 nix run .#build                    # build ./btpolld for the host platform
 nix run .#build-pi                 # build static ./btpolld-arm for Raspberry Pi Zero (armv6)
 nix develop -c go test -race ./... # run Go race tests directly in devShell

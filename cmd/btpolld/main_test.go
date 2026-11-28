@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -58,5 +59,52 @@ func TestReadmeShowsDeployFiles(t *testing.T) {
 		if !strings.Contains(string(readme), strings.TrimRight(string(b), "\n")) {
 			t.Errorf("README.md does not contain deploy/%s verbatim", f)
 		}
+	}
+}
+
+func TestBuildVersion(t *testing.T) {
+	cases := []struct {
+		name string
+		bi   debug.BuildInfo
+		want string
+	}{
+		{
+			name: "clean vcs revision",
+			bi: debug.BuildInfo{
+				Main: debug.Module{Version: "(devel)"},
+				Settings: []debug.BuildSetting{
+					{Key: "vcs.revision", Value: "abcdef1234567890"},
+					{Key: "vcs.modified", Value: "false"},
+				},
+			},
+			want: "abcdef1",
+		},
+		{
+			name: "dirty vcs revision",
+			bi: debug.BuildInfo{
+				Settings: []debug.BuildSetting{
+					{Key: "vcs.revision", Value: "abcdef1234567890"},
+					{Key: "vcs.modified", Value: "true"},
+				},
+			},
+			want: "abcdef1-dirty",
+		},
+		{
+			name: "module version fallback",
+			bi:   debug.BuildInfo{Main: debug.Module{Version: "v1.2.3"}},
+			want: "v1.2.3",
+		},
+		{
+			name: "devel fallback",
+			bi:   debug.BuildInfo{Main: debug.Module{Version: "(devel)"}},
+			want: "dev",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := buildVersion(&tc.bi); got != tc.want {
+				t.Errorf("buildVersion() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

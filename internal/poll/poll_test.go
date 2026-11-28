@@ -450,3 +450,21 @@ func TestWaveAdvertisementForwardsSignal(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestThermometersShareFlushLoop(t *testing.T) {
+	two := []Device{
+		{Name: "p1", MAC: "00:11:22:33:44:66"},
+		{Name: "p2", MAC: "00:11:22:33:44:67"},
+	}
+	ln := tickingListener{mkAdvert(t, "aabbccddeeff1b0203962600", -80)}
+	s := &sink{}
+	p := newPoller(nil, ln, s, Config{Thermometers: two, ThermoInterval: 20 * time.Millisecond})
+	runFor(t, p, 90*time.Millisecond)
+	s.mu.Lock()
+	flushes := s.flushes
+	s.mu.Unlock()
+	// 90ms / 20ms = 4 ticks + 1 final flush on exit = ~5; per-device tickers would be ~9.
+	if flushes < 3 || flushes > 6 {
+		t.Errorf("flushes = %d, want 3..6 for a single shared flush loop", flushes)
+	}
+}

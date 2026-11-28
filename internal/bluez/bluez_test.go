@@ -112,3 +112,46 @@ func TestAdvertSeed(t *testing.T) {
 		t.Error("unknown device seeded data")
 	}
 }
+
+func TestIsDeviceAdded(t *testing.T) {
+	dev := dbus.ObjectPath("/org/bluez/hci0/dev_AA_BB_CC_00_11_22")
+	withDev := map[string]map[string]dbus.Variant{deviceIf: {}}
+	withoutDev := map[string]map[string]dbus.Variant{"org.bluez.GattService1": {}}
+	cases := []struct {
+		name string
+		sig  *dbus.Signal
+		want bool
+	}{
+		{"matching device", &dbus.Signal{Name: objManager + ".InterfacesAdded", Body: []any{dev, withDev}}, true},
+		{"wrong path", &dbus.Signal{Name: objManager + ".InterfacesAdded", Body: []any{dbus.ObjectPath("/org/bluez/hci0/dev_other"), withDev}}, false},
+		{"no Device1", &dbus.Signal{Name: objManager + ".InterfacesAdded", Body: []any{dev, withoutDev}}, false},
+		{"unrelated signal", &dbus.Signal{Name: propsChanged, Body: []any{dev, withDev}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isDeviceAdded(tc.sig, dev); got != tc.want {
+				t.Errorf("isDeviceAdded() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsBluezOwnerChanged(t *testing.T) {
+	cases := []struct {
+		name string
+		sig  *dbus.Signal
+		want bool
+	}{
+		{"owner lost", &dbus.Signal{Name: nameOwnerChanged, Body: []any{service, ":1.5", ""}}, true},
+		{"owner changed", &dbus.Signal{Name: nameOwnerChanged, Body: []any{service, ":1.5", ":1.9"}}, true},
+		{"same owner", &dbus.Signal{Name: nameOwnerChanged, Body: []any{service, ":1.5", ":1.5"}}, false},
+		{"other name", &dbus.Signal{Name: nameOwnerChanged, Body: []any{"org.example.Other", ":1.5", ""}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isBluezOwnerChanged(tc.sig); got != tc.want {
+				t.Errorf("isBluezOwnerChanged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

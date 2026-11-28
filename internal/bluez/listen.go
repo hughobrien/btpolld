@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	propsChanged = "org.freedesktop.DBus.Properties.PropertiesChanged"
-	setupTimeout = 30 * time.Second
+	propsChanged     = "org.freedesktop.DBus.Properties.PropertiesChanged"
+	dbusPath         = "/org/freedesktop/DBus"
+	dbusIf           = "org.freedesktop.DBus"
+	nameOwnerChanged = dbusIf + ".NameOwnerChanged"
+	setupTimeout     = 30 * time.Second
 )
 
 // Advert is what BlueZ last learnt from a device's advertisements.
@@ -93,10 +96,13 @@ func (c *Client) Listen(ctx context.Context, mac string, company uint16, service
 		cancel()
 		return fmt.Errorf("watch device: %w", err)
 	}
+	if err := conn.AddMatchSignalContext(sctx, dbus.WithMatchObjectPath(dbusPath), dbus.WithMatchInterface(dbusIf), dbus.WithMatchMember("NameOwnerChanged"), dbus.WithMatchArg(0, service)); err != nil {
+		cancel()
+		return fmt.Errorf("watch bluez: %w", err)
+	}
 
 	a := conn.Object(service, adapter)
-	filter := map[string]dbus.Variant{"Transport": dbus.MakeVariant("le"), "DuplicateData": dbus.MakeVariant(true)}
-	_ = a.CallWithContext(sctx, adapterIf+".SetDiscoveryFilter", 0, filter).Err
+	setDiscoveryFilter(sctx, a, mac, true)
 	if err := a.CallWithContext(sctx, adapterIf+".StartDiscovery", 0).Err; err != nil {
 		cancel()
 		return fmt.Errorf("start scan: %w", err)
@@ -127,6 +133,9 @@ func (c *Client) Listen(ctx context.Context, mac string, company uint16, service
 			if !ok {
 				return errors.New("bus connection closed")
 			}
+			if isBluezOwnerChanged(s) {
+				return errors.New("bluetoothd restarted")
+			}
 			if s.Path != dev || s.Name != propsChanged || len(s.Body) < 2 {
 				continue
 			}
@@ -139,4 +148,14 @@ func (c *Client) Listen(ctx context.Context, mac string, company uint16, service
 			}
 		}
 	}
+}
+
+func isBluezOwnerChanged(s *dbus.Signal) bool {
+	if s.Name != nameOwnerChanged || len(s.Body) < 3 {
+		return false
+	}
+	name, _ := s.Body[0].(string)
+	oldOwner, _ := s.Body[1].(string)
+	newOwner, _ := s.Body[2].(string)
+	return name == service && oldOwner != newOwner
 }

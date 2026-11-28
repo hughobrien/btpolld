@@ -316,23 +316,28 @@ func (p *Poller) readWave(ctx context.Context, d Device) (wave.Reading, error) {
 func (p *Poller) runThermometers(ctx context.Context) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
+	interval := p.cfg.ThermoInterval
 	for _, d := range p.cfg.Thermometers {
-		wg.Add(2)
+		if iv := p.every(d, p.cfg.ThermoInterval); iv < interval {
+			interval = iv
+		}
+		wg.Add(1)
 		go func() { defer wg.Done(); p.listen(ctx, d) }()
-		go func() {
-			defer wg.Done()
-			t := time.NewTicker(p.every(d, p.cfg.ThermoInterval))
-			defer t.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-t.C:
-					p.flush(ctx)
-				}
-			}
-		}()
 	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				p.flush(ctx)
+			}
+		}
+	}()
 }
 
 // listen keeps a scan for d going, restarting it after a failure.

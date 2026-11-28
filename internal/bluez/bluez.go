@@ -72,7 +72,7 @@ func (c *Client) Read(ctx context.Context, mac, uuid string) (val []byte, err er
 	}
 	dev := devicePath(adapter, mac)
 	if _, known := objs[dev]; !known {
-		if err := c.discover(ctx, adapter, dev); err != nil {
+		if err := c.discover(ctx, adapter, dev, mac); err != nil {
 			return nil, err
 		}
 	}
@@ -122,10 +122,27 @@ func getProp(ctx context.Context, o dbus.BusObject, iface, prop string) (dbus.Va
 }
 
 // discover scans until BlueZ knows the device at path dev.
-func (c *Client) discover(ctx context.Context, adapter, dev dbus.ObjectPath) error {
+func (c *Client) discover(ctx context.Context, adapter, dev dbus.ObjectPath, mac string) error {
+	sigs := make(chan *dbus.Signal, 64)
+	c.conn.Signal(sigs)
+	defer c.conn.RemoveSignal(sigs)
+
+	match := []dbus.MatchOption{
+		dbus.WithMatchObjectPath("/"),
+		dbus.WithMatchInterface(objManager),
+		dbus.WithMatchMember("InterfacesAdded"),
+	}
+	if err := c.conn.AddMatchSignalContext(ctx, match...); err != nil {
+		return fmt.Errorf("watch devices: %w", err)
+	}
+	defer func() {
+		rctx, cancel := context.WithTimeout(context.Background(), disconnectT)
+		defer cancel()
+		_ = c.conn.RemoveMatchSignalContext(rctx, match...)
+	}()
+
 	a := c.conn.Object(service, adapter)
-	filter := map[string]dbus.Variant{"Transport": dbus.MakeVariant("le")}
-	_ = a.CallWithContext(ctx, adapterIf+".SetDiscoveryFilter", 0, filter).Err
+	setDiscoveryFilter(ctx, a, mac, false)
 	if err := a.CallWithContext(ctx, adapterIf+".StartDiscovery", 0).Err; err != nil {
 		return fmt.Errorf("start scan: %w", err)
 	}
@@ -134,18 +151,56 @@ func (c *Client) discover(ctx context.Context, adapter, dev dbus.ObjectPath) err
 		defer cancel()
 		_ = a.CallWithContext(sctx, adapterIf+".StopDiscovery", 0).Err
 	}()
-	err := waitTrue(ctx, func() (bool, error) {
-		o, err := c.managed(ctx)
-		if err != nil {
-			return false, err
-		}
-		_, ok := o[dev]
-		return ok, nil
-	})
-	if err != nil {
-		return fmt.Errorf("device not seen while scanning: %w", err)
+
+	// Check once after subscribing in case the device appeared in the window
+	// between GetManagedObjects and AddMatchSignal.
+	if _, err := getProp(ctx, c.conn.Object(service, dev), deviceIf, "Address"); err == nil {
+		return nil
 	}
-	return nil
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("device not seen while scanning: %w", ctx.Err())
+		case s, ok := <-sigs:
+			if !ok {
+				return errors.New("device not seen while scanning: bus connection closed")
+			}
+			if isDeviceAdded(s, dev) {
+				return nil
+			}
+		}
+	}
+}
+
+func setDiscoveryFilter(ctx context.Context, a dbus.BusObject, mac string, duplicateData bool) {
+	filter := map[string]dbus.Variant{
+		"Transport": dbus.MakeVariant("le"),
+		"Pattern":   dbus.MakeVariant(strings.ToUpper(mac)),
+	}
+	if duplicateData {
+		filter["DuplicateData"] = dbus.MakeVariant(true)
+	}
+	if a.CallWithContext(ctx, adapterIf+".SetDiscoveryFilter", 0, filter).Err != nil {
+		delete(filter, "Pattern")
+		_ = a.CallWithContext(ctx, adapterIf+".SetDiscoveryFilter", 0, filter).Err
+	}
+}
+
+func isDeviceAdded(s *dbus.Signal, dev dbus.ObjectPath) bool {
+	if s.Name != objManager+".InterfacesAdded" || len(s.Body) < 2 {
+		return false
+	}
+	path, ok := s.Body[0].(dbus.ObjectPath)
+	if !ok || path != dev {
+		return false
+	}
+	ifaces, ok := s.Body[1].(map[string]map[string]dbus.Variant)
+	if !ok {
+		return false
+	}
+	_, hasDev := ifaces[deviceIf]
+	return hasDev
 }
 
 // waitTrue calls f until it reports true, fails, or ctx ends.

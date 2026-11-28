@@ -5,24 +5,17 @@ owner = "hughobrien"
 
 [test]
 fast_stages = [
-  [
-    "nix develop -c go vet ./...",
-    "nix develop -c sh -c 'drift=$(gofmt -l .); [ -z \"$drift\" ] || { echo \"gofmt drift: $drift\"; exit 1; }'",
-    "nix develop -c go test ./...",
-  ],
+  "drift=$(gofmt -l .); [ -z \"$drift\" ] || { echo \"gofmt drift: $drift\"; exit 1; }",
+  "go vet ./...",
+  "go test ./...",
+  "nixfmt --check flake.nix",
+  "statix check .",
+  "deadnix --fail .",
+  "actionlint -config-file \"$ACTIONLINT_CONFIG\" .forgejo/workflows/*.yml",
+  "rumdl check --disable MD013 --no-cache .",
 ]
-
 slow_stages = [
-  [
-    "nix develop -c go vet ./...",
-    "nix develop -c sh -c 'drift=$(gofmt -l .); [ -z \"$drift\" ] || { echo \"gofmt drift: $drift\"; exit 1; }'",
-    "nix develop -c go test -race ./...",
-    "nix develop -c nixfmt --check flake.nix",
-    "nix develop -c statix check .",
-    "nix develop -c deadnix --fail .",
-    "nix develop -c sh -c 'actionlint .forgejo/workflows/*.yml'",
-    "nix develop -c rumdl check --disable MD013 --no-cache .",
-  ],
+  "go test -race ./...",
 ]
 
 [ci]

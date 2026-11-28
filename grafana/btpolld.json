@@ -627,8 +627,17 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "airthings_radon_short_term_bq_m3 or airthings_radon_long_term_bq_m3",
-          "legendFormat": "{{device}} {{__name__}}"
+          "expr": "airthings_radon_short_term_bq_m3",
+          "legendFormat": "{{device}} short-term"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "airthings_radon_long_term_bq_m3",
+          "legendFormat": "{{device}} long-term"
         }
       ],
       "transparent": true
@@ -1196,7 +1205,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "airthings_rssi_dbm",
-          "legendFormat": "wave"
+          "legendFormat": "{{device}}"
         },
         {
           "refId": "B",

@@ -123,7 +123,7 @@ func Parse(b []byte) (Config, error) {
 	}
 	for i, p := range f.Push {
 		u, err := url.Parse(p)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 			return Config{}, fmt.Errorf("config: push[%d] must be an http:// or https:// URL", i)
 		}
 		c.Push = append(c.Push, p)

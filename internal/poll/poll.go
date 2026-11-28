@@ -26,7 +26,7 @@ import (
 
 // Reader reads a GATT characteristic from the device with the given address.
 type Reader interface {
-	Read(ctx context.Context, mac, uuid string) (val []byte, rssi int16, err error)
+	Read(ctx context.Context, mac, uuid string) (val []byte, err error)
 }
 
 // Listener calls fn each time the device at mac advertises, with the
@@ -214,6 +214,9 @@ func (p *Poller) runWaves(ctx context.Context) {
 			defer t.Stop()
 			for {
 				p.pollWave(ctx, d)
+				if ctx.Err() != nil {
+					return
+				}
 				p.flush(ctx)
 				select {
 				case <-ctx.Done():
@@ -256,6 +259,9 @@ func (p *Poller) pollWave(ctx context.Context, d Device) {
 		if err == nil {
 			break
 		}
+		if ctx.Err() != nil {
+			return
+		}
 		p.log.Warn("read failed", "device", d.Name, "attempt", attempt, "err", err)
 		if p.noteStuck(err) {
 			return
@@ -296,7 +302,7 @@ func (p *Poller) noteStuck(err error) bool {
 func (p *Poller) readWave(ctx context.Context, d Device) (wave.Reading, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.Timeout)
 	defer cancel()
-	raw, _, err := p.rd.Read(ctx, d.MAC, wave.CurrentValues)
+	raw, err := p.rd.Read(ctx, d.MAC, wave.CurrentValues)
 	if err != nil {
 		return wave.Reading{}, err
 	}

@@ -165,7 +165,7 @@ WantedBy=multi-user.target
 ```
 
 `nix run .#build-pi` makes a static binary for a Raspberry Pi Zero (armv6).
-`grafana/btpolld.json` is an importable dashboard (Wave Plus only so far).
+`grafana/btpolld.json` is an importable dashboard.
 
 ## Example: a Pi as a remote collector
 

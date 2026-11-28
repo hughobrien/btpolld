@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -57,7 +58,7 @@ func run(args []string, getenv func(string) string) error {
 		return err
 	}
 	if *showVer {
-		fmt.Println(version)
+		fmt.Println(versionString())
 		return nil
 	}
 	cfg, err := config.Load(*path)
@@ -81,8 +82,45 @@ func run(args []string, getenv func(string) string) error {
 		bt, bt, promwrite.NewPushers(targets, pushClient()), log)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	log.Info("started", "version", version, "polled", len(cfg.Waves), "broadcasting", len(cfg.Thermometers), "targets", len(targets))
+	log.Info("started", "version", versionString(), "polled", len(cfg.Waves), "broadcasting", len(cfg.Thermometers), "targets", len(targets))
 	return p.Run(ctx)
+}
+
+func versionString() string {
+	if version != "dev" {
+		return version
+	}
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return version
+	}
+	return buildVersion(bi)
+}
+
+func buildVersion(bi *debug.BuildInfo) string {
+	var rev string
+	var dirty bool
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if rev != "" {
+		if len(rev) > 7 {
+			rev = rev[:7]
+		}
+		if dirty {
+			rev += "-dirty"
+		}
+		return rev
+	}
+	if bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return "dev"
 }
 
 var notLabel = regexp.MustCompile(`[^a-zA-Z0-9_]+`)

@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
 
-const propsChanged = "org.freedesktop.DBus.Properties.PropertiesChanged"
+const (
+	propsChanged = "org.freedesktop.DBus.Properties.PropertiesChanged"
+	setupTimeout = 30 * time.Second
+)
 
 // Advert is what BlueZ last learnt from a device's advertisements.
 type Advert struct {
@@ -69,12 +73,15 @@ func (c *Client) Listen(ctx context.Context, mac string, company uint16, service
 	}
 	defer conn.Close()
 
-	objs, err := (&Client{conn: conn}).managed(ctx)
+	sctx, cancel := context.WithTimeout(ctx, setupTimeout)
+	objs, err := (&Client{conn: conn}).managed(sctx)
 	if err != nil {
+		cancel()
 		return fmt.Errorf("list bluez objects: %w", err)
 	}
 	adapter, ok := findAdapter(objs)
 	if !ok {
+		cancel()
 		return errors.New("no bluetooth adapter (is bluetooth enabled?)")
 	}
 	dev := devicePath(adapter, mac)
@@ -82,27 +89,36 @@ func (c *Client) Listen(ctx context.Context, mac string, company uint16, service
 	sigs := make(chan *dbus.Signal, 64)
 	conn.Signal(sigs)
 	defer conn.RemoveSignal(sigs)
-	if err := conn.AddMatchSignalContext(ctx, dbus.WithMatchObjectPath(dev), dbus.WithMatchInterface("org.freedesktop.DBus.Properties"), dbus.WithMatchMember("PropertiesChanged")); err != nil {
+	if err := conn.AddMatchSignalContext(sctx, dbus.WithMatchObjectPath(dev), dbus.WithMatchInterface("org.freedesktop.DBus.Properties"), dbus.WithMatchMember("PropertiesChanged")); err != nil {
+		cancel()
 		return fmt.Errorf("watch device: %w", err)
 	}
 
 	a := conn.Object(service, adapter)
 	filter := map[string]dbus.Variant{"Transport": dbus.MakeVariant("le"), "DuplicateData": dbus.MakeVariant(true)}
-	_ = a.CallWithContext(ctx, adapterIf+".SetDiscoveryFilter", 0, filter).Err
-	if err := a.CallWithContext(ctx, adapterIf+".StartDiscovery", 0).Err; err != nil {
+	_ = a.CallWithContext(sctx, adapterIf+".SetDiscoveryFilter", 0, filter).Err
+	if err := a.CallWithContext(sctx, adapterIf+".StartDiscovery", 0).Err; err != nil {
+		cancel()
 		return fmt.Errorf("start scan: %w", err)
 	}
 	defer func() {
-		sctx, cancel := context.WithTimeout(context.Background(), disconnectT)
-		defer cancel()
-		_ = a.CallWithContext(sctx, adapterIf+".StopDiscovery", 0).Err
+		dctx, dcancel := context.WithTimeout(context.Background(), disconnectT)
+		defer dcancel()
+		_ = a.CallWithContext(dctx, adapterIf+".StopDiscovery", 0).Err
 	}()
 
 	// BlueZ sends manufacturer data only when it changes, so a steady reading
 	// (a thermometer in a fridge) would never be heard again after a restart:
-	// start from what it already holds for the device.
+	// start from what it already holds for the device, then refresh after
+	// subscribing so changes between GetManagedObjects and AddMatchSignal are
+	// not missed.
 	var cur Advert
 	cur.seed(objs, dev, company, serviceUUID)
+	var props map[string]dbus.Variant
+	if err := conn.Object(service, dev).CallWithContext(sctx, "org.freedesktop.DBus.Properties.GetAll", 0, deviceIf).Store(&props); err == nil {
+		cur.apply(company, serviceUUID, props)
+	}
+	cancel()
 	for {
 		select {
 		case <-ctx.Done():
